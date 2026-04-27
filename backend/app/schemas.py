@@ -3,9 +3,23 @@ from datetime import date
 from typing import Optional
 
 
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+
+
 class AthleteCreate(BaseModel):
     name: str
-    coach_id: int
 
 
 class AthleteResponse(BaseModel):
