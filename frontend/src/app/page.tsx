@@ -116,7 +116,14 @@ async function getAthletes(): Promise<Athlete[]> {
       cache: "no-store",
       headers: getAuthHeaders(),
     });
-    return JSON.parse(await res.text());
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data)
+      ? data.filter(
+          (item): item is Athlete =>
+            item && typeof item === "object" && typeof item.id === "number" && typeof item.name === "string",
+        )
+      : [];
   } catch {
     return [];
   }
@@ -126,7 +133,21 @@ async function getAllLogs(): Promise<RawLog[]> {
   try {
     const res = await fetch(`${BASE_URL}/logs`, { headers: getAuthHeaders() });
     if (!res.ok) return [];
-    return res.json();
+    const data = await res.json();
+    return Array.isArray(data)
+      ? data.filter(
+          (item): item is RawLog =>
+            item &&
+            typeof item === "object" &&
+            typeof item.id === "number" &&
+            typeof item.athlete_id === "number" &&
+            typeof item.exercise_id === "number" &&
+            typeof item.date === "string" &&
+            typeof item.weight === "number" &&
+            typeof item.reps === "number" &&
+            typeof item.estimated_rm === "number",
+        )
+      : [];
   } catch {
     return [];
   }
@@ -142,7 +163,27 @@ async function getProgress(
       { headers: getAuthHeaders() },
     );
     if (!res.ok) return null;
-    return res.json();
+    const data = await res.json();
+    if (!data || typeof data !== "object" || !Array.isArray(data.history)) return null;
+    return {
+      exercise: typeof data.exercise === "string" ? data.exercise : "",
+      history: data.history
+        .filter(
+          (item: unknown): item is { date: string; estimated_rm: number; weight: number; reps: number } =>
+            item &&
+            typeof item === "object" &&
+            typeof (item as any).date === "string" &&
+            typeof (item as any).estimated_rm === "number" &&
+            typeof (item as any).weight === "number" &&
+            typeof (item as any).reps === "number",
+        )
+        .map((item) => ({
+          date: item.date,
+          estimated_rm: item.estimated_rm,
+          weight: item.weight,
+          reps: item.reps,
+        })),
+    };
   } catch {
     return null;
   }
@@ -154,7 +195,29 @@ async function getSummary(logId: number): Promise<LogSummary | null> {
       headers: getAuthHeaders(),
     });
     if (!res.ok) return null;
-    return res.json();
+    const data = await res.json();
+    if (
+      !data ||
+      typeof data !== "object" ||
+      typeof data.exercise !== "string" ||
+      typeof data.weight !== "number" ||
+      typeof data.reps !== "number" ||
+      typeof data.estimated_rm !== "number" ||
+      !Array.isArray(data.percentages)
+    ) {
+      return null;
+    }
+    return {
+      exercise: data.exercise,
+      date: typeof data.date === "string" ? data.date : "",
+      weight: data.weight,
+      reps: data.reps,
+      estimated_rm: data.estimated_rm,
+      percentages: data.percentages.filter(
+        (item: unknown): item is PercentageRow =>
+          item && typeof item === "object" && typeof (item as any).reps === "number" && typeof (item as any).weight === "number",
+      ),
+    };
   } catch {
     return null;
   }
@@ -217,8 +280,9 @@ export default function Home() {
   const [dateRange, setDateRange] = useState<DateRange>("all");
 
   const weightInputRef = useRef<HTMLInputElement | null>(null);
-  const selectedAthlete = athletes.find((a) => a.id === selectedAthleteId);
-  const selectedExercise = EXERCISES.find((e) => e.id === selectedExerciseId);
+  const safeAthletes = Array.isArray(athletes) ? athletes : [];
+  const selectedAthlete = safeAthletes.find((a) => a.id === selectedAthleteId) ?? null;
+  const selectedExercise = EXERCISES.find((e) => e.id === selectedExerciseId) ?? null;
 
   // ─── Token init ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -309,6 +373,73 @@ export default function Home() {
         .map((l) => ({ date: l.date, estimated_rm: l.estimated_rm })),
     [filteredLogs],
   );
+
+  const analytics = useMemo(() => {
+    const sourceLogs = Array.isArray(filteredLogs) && filteredLogs.length > 0 ? filteredLogs : Array.isArray(logs) ? logs : [];
+    const sortedLogs = [...sourceLogs].sort(
+      (a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime(),
+    );
+    const totalSessions = sourceLogs.length;
+    const totalRm = sourceLogs.reduce((sum, item) => sum + item.estimated_rm, 0);
+    const bestEstimatedRM = totalSessions > 0 ? Math.max(...sourceLogs.map((item) => item.estimated_rm)) : 0;
+    const averageEstimatedRM = totalSessions > 0 ? Math.round(totalRm / totalSessions) : 0;
+    const volumeLoad = sourceLogs.reduce((sum, item) => sum + item.weight * item.reps, 0);
+
+    const today = startOfToday();
+    const cutOff30 = new Date(today);
+    cutOff30.setDate(cutOff30.getDate() - 30);
+    const consistencyStreak = sourceLogs.filter((item) => parseLocalDate(item.date) >= cutOff30).length;
+
+    const firstLog = sortedLogs[0] ?? null;
+    const lastLog = sortedLogs[sortedLogs.length - 1] ?? null;
+    const peakRm = totalSessions > 0 ? Math.max(...sourceLogs.map((item) => item.estimated_rm)) : 0;
+
+    let insight = "Gathering training insights from real logs.";
+    if (totalSessions === 0) {
+      insight = "No training logs yet. Add a session to see athlete insights.";
+    } else if (totalSessions >= 2 && firstLog && lastLog) {
+      const trendPercent = ((lastLog.estimated_rm - firstLog.estimated_rm) / Math.max(firstLog.estimated_rm, 1)) * 100;
+      if (trendPercent >= 4) {
+        insight = "Performance trending upward with stronger RM gains.";
+      } else if (trendPercent <= -4) {
+        insight = "Estimated RM has softened compared to earlier sessions.";
+      } else {
+        insight = "Performance is stable with consistent training.";
+      }
+    }
+
+    let peakInsight = "";
+    if (lastLog && peakRm > 0) {
+      const deltaFromPeak = ((lastLog.estimated_rm - peakRm) / peakRm) * 100;
+      if (deltaFromPeak <= -3) {
+        peakInsight = `Estimated RM dropped ${Math.abs(deltaFromPeak).toFixed(0)}% from peak.`;
+      } else if (deltaFromPeak >= 0) {
+        peakInsight = "Estimated RM is at a new peak.";
+      } else {
+        peakInsight = "Estimated RM remains close to the athlete's peak.";
+      }
+    }
+
+    let frequencyInsight = "";
+    if (consistencyStreak >= 6) {
+      frequencyInsight = "High consistency detected over the last 30 days.";
+    } else if (consistencyStreak <= 2 && totalSessions > 0) {
+      frequencyInsight = "Low training frequency — encourage more sessions.";
+    } else if (totalSessions > 0) {
+      frequencyInsight = "Training frequency is moderate and steady.";
+    }
+
+    return {
+      totalSessions,
+      averageEstimatedRM,
+      bestEstimatedRM,
+      consistencyStreak,
+      volumeLoad,
+      insight,
+      peakInsight,
+      frequencyInsight,
+    };
+  }, [filteredLogs, logs]);
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
@@ -529,13 +660,23 @@ export default function Home() {
 
           {/* [NEW] Loading state */}
           {isLoadingAthletes ? (
-            <p className="text-sm text-slate-400 animate-pulse">Loading athletes...</p>
-          ) : athletes.length === 0 ? (
-            <p className="text-sm text-slate-400">No athletes yet. Add one above.</p>
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-8 text-center shadow-sm">
+              <p className="text-sm text-slate-500 animate-pulse">Loading athletes...</p>
+            </div>
+          ) : safeAthletes.length === 0 ? (
+            <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100 px-5 py-8 text-center shadow-sm">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 mx-auto mb-4">
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z" />
+                  <path d="M6 20c0-3.31 2.69-6 6-6s6 2.69 6 6" />
+                </svg>
+              </div>
+              <p className="text-sm font-semibold text-slate-700 mb-2">No athletes found</p>
+              <p className="text-sm text-slate-500">Add your first athlete to start tracking strength progress.</p>
+            </div>
           ) : (
-            // [NEW] Pill-style athlete buttons with selection highlight
             <div className="flex flex-wrap gap-2">
-              {athletes.map((athlete) => (
+              {safeAthletes.map((athlete) => (
                 <button
                   key={athlete.id}
                   type="button"
@@ -643,8 +784,15 @@ export default function Home() {
                 <p className="text-sm text-slate-400 animate-pulse">Loading logs...</p>
               </section>
             ) : logs.length === 0 ? (
-              <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 text-center py-12">
-                <p className="text-slate-400 text-sm">No training logs yet for this exercise.</p>
+              <section className="bg-white rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100 p-8 text-center shadow-sm">
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 mx-auto mb-4">
+                  <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 4v16" />
+                    <path d="M4 12h16" />
+                  </svg>
+                </div>
+                <h3 className="text-base font-semibold text-slate-800 mb-2">No training logs yet</h3>
+                <p className="text-sm text-slate-500 max-w-sm mx-auto">Record your first session to unlock training insights, RM progression, and consistency tracking.</p>
               </section>
             ) : (
               <>
@@ -749,7 +897,51 @@ export default function Home() {
                   )}
                 </section>
 
-                {/* Log list — also filtered by dateRange */}
+                {/* Training Insights — advanced analytics cards */}
+                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+                    <div>
+                      <h2 className="text-base font-semibold text-slate-700">Training Insights</h2>
+                      <p className="text-sm text-slate-500 max-w-xl">A quick snapshot of session volume, estimated RM, and recent consistency for this athlete.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                        <span className="h-2.5 w-2.5 rounded-full bg-indigo-500" />
+                        {DATE_RANGE_OPTIONS.find((opt) => opt.value === dateRange)?.label}
+                      </span>
+                      <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                        {analytics.consistencyStreak} sessions last 30 days
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                      <p className="text-xs text-slate-400 uppercase tracking-wide">Total sessions</p>
+                      <p className="mt-3 text-3xl font-semibold text-slate-900">{analytics.totalSessions}</p>
+                    </div>
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                      <p className="text-xs text-slate-400 uppercase tracking-wide">Avg. estimated RM</p>
+                      <p className="mt-3 text-3xl font-semibold text-indigo-600">{analytics.averageEstimatedRM} kg</p>
+                    </div>
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                      <p className="text-xs text-slate-400 uppercase tracking-wide">Best estimated RM</p>
+                      <p className="mt-3 text-3xl font-semibold text-slate-900">{analytics.bestEstimatedRM} kg</p>
+                    </div>
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                      <p className="text-xs text-slate-400 uppercase tracking-wide">Volume load</p>
+                      <p className="mt-3 text-3xl font-semibold text-slate-900">{analytics.volumeLoad}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">Trend analysis</p>
+                    <p className="mt-3 text-sm text-slate-700">{analytics.insight}</p>
+                    <p className="mt-2 text-sm text-slate-500">{analytics.peakInsight} {analytics.frequencyInsight}</p>
+                  </div>
+                </section>
+
                 <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-base font-semibold text-slate-700">Training Logs</h2>
