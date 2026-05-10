@@ -69,12 +69,12 @@ const EXERCISES = [
   { id: 5, name: "Hip Thrust" },
 ];
 
-// [NEW] Date range options for the select
-const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
-  { value: "7d",  label: "Last 7 days"  },
-  { value: "30d", label: "Last 30 days" },
-  { value: "90d", label: "Last 90 days" },
-  { value: "all", label: "All time"     },
+// [NEW] Date range options for the buttons and display
+const DATE_RANGE_OPTIONS: { value: DateRange; label: string; shortLabel: string }[] = [
+  { value: "7d",  label: "Últimos 7 días",  shortLabel: "7D"  },
+  { value: "30d", label: "Últimos 30 días", shortLabel: "30D" },
+  { value: "90d", label: "Últimos 90 días", shortLabel: "90D" },
+  { value: "all", label: "Todo el período", shortLabel: "TODO" },
 ];
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ function getTodayDate(): string {
 // [NEW] Format "2024-01-15" → "Jan 15" for XAxis labels
 function formatChartDate(dateStr: string): string {
   const d = parseLocalDate(dateStr);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.toLocaleDateString("es-AR", { month: "short", day: "numeric" });
 }
 
 // ─── API ──────────────────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ async function getAthletes(): Promise<Athlete[]> {
     return Array.isArray(data)
       ? data.filter(
           (item): item is Athlete =>
-            item && typeof item === "object" && typeof item.id === "number" && typeof item.name === "string",
+            item !== null && typeof item === "object" && typeof item.id === "number" && typeof item.name === "string",
         )
       : [];
   } catch {
@@ -137,7 +137,7 @@ async function getAllLogs(): Promise<RawLog[]> {
     return Array.isArray(data)
       ? data.filter(
           (item): item is RawLog =>
-            item &&
+            item !== null &&
             typeof item === "object" &&
             typeof item.id === "number" &&
             typeof item.athlete_id === "number" &&
@@ -170,14 +170,14 @@ async function getProgress(
       history: data.history
         .filter(
           (item: unknown): item is { date: string; estimated_rm: number; weight: number; reps: number } =>
-            item &&
+            item !== null &&
             typeof item === "object" &&
             typeof (item as any).date === "string" &&
             typeof (item as any).estimated_rm === "number" &&
             typeof (item as any).weight === "number" &&
             typeof (item as any).reps === "number",
         )
-        .map((item) => ({
+        .map((item: { date: string; estimated_rm: number; weight: number; reps: number }) => ({
           date: item.date,
           estimated_rm: item.estimated_rm,
           weight: item.weight,
@@ -215,7 +215,7 @@ async function getSummary(logId: number): Promise<LogSummary | null> {
       estimated_rm: data.estimated_rm,
       percentages: data.percentages.filter(
         (item: unknown): item is PercentageRow =>
-          item && typeof item === "object" && typeof (item as any).reps === "number" && typeof (item as any).weight === "number",
+          item !== null && typeof item === "object" && typeof (item as any).reps === "number" && typeof (item as any).weight === "number",
       ),
     };
   } catch {
@@ -243,7 +243,7 @@ function ChartTooltip({
       </p>
       <p className="text-base font-bold text-indigo-600">
         {payload[0].value}{" "}
-        <span className="text-xs font-normal text-slate-500">kg est. RM</span>
+        <span className="text-xs font-normal text-slate-500">kg RM est.</span>
       </p>
     </div>
   );
@@ -394,17 +394,17 @@ export default function Home() {
     const lastLog = sortedLogs[sortedLogs.length - 1] ?? null;
     const peakRm = totalSessions > 0 ? Math.max(...sourceLogs.map((item) => item.estimated_rm)) : 0;
 
-    let insight = "Gathering training insights from real logs.";
+    let insight = "Analizando datos de entrenamiento.";
     if (totalSessions === 0) {
-      insight = "No training logs yet. Add a session to see athlete insights.";
+      insight = "Sin registros todavía. Agregá una sesión para ver los análisis.";
     } else if (totalSessions >= 2 && firstLog && lastLog) {
       const trendPercent = ((lastLog.estimated_rm - firstLog.estimated_rm) / Math.max(firstLog.estimated_rm, 1)) * 100;
       if (trendPercent >= 4) {
-        insight = "Performance trending upward with stronger RM gains.";
+        insight = "Tendencia positiva: el RM estimado viene en ascenso.";
       } else if (trendPercent <= -4) {
-        insight = "Estimated RM has softened compared to earlier sessions.";
+        insight = "El RM estimado bajó respecto a las sesiones anteriores.";
       } else {
-        insight = "Performance is stable with consistent training.";
+        insight = "Rendimiento estable con entrenamiento consistente.";
       }
     }
 
@@ -412,21 +412,21 @@ export default function Home() {
     if (lastLog && peakRm > 0) {
       const deltaFromPeak = ((lastLog.estimated_rm - peakRm) / peakRm) * 100;
       if (deltaFromPeak <= -3) {
-        peakInsight = `Estimated RM dropped ${Math.abs(deltaFromPeak).toFixed(0)}% from peak.`;
+        peakInsight = `El RM estimado bajó un ${Math.abs(deltaFromPeak).toFixed(0)}% desde el pico máximo.`;
       } else if (deltaFromPeak >= 0) {
-        peakInsight = "Estimated RM is at a new peak.";
+        peakInsight = "El RM estimado está en su máximo histórico.";
       } else {
-        peakInsight = "Estimated RM remains close to the athlete's peak.";
+        peakInsight = "El RM estimado se mantiene cerca del pico máximo del atleta.";
       }
     }
 
     let frequencyInsight = "";
     if (consistencyStreak >= 6) {
-      frequencyInsight = "High consistency detected over the last 30 days.";
+      frequencyInsight = "Alta consistencia en los últimos 30 días.";
     } else if (consistencyStreak <= 2 && totalSessions > 0) {
-      frequencyInsight = "Low training frequency — encourage more sessions.";
+      frequencyInsight = "Frecuencia de entrenamiento baja — recomendá más sesiones.";
     } else if (totalSessions > 0) {
-      frequencyInsight = "Training frequency is moderate and steady.";
+      frequencyInsight = "Frecuencia de entrenamiento moderada y estable.";
     }
 
     return {
@@ -460,7 +460,7 @@ export default function Home() {
       setLoginEmail("");
       setLoginPassword("");
     } catch {
-      setLoginError("Invalid email or password");
+      setLoginError("Email o contraseña incorrectos");
     } finally {
       setIsLoggingIn(false);
     }
@@ -521,7 +521,7 @@ export default function Home() {
       setReps("");
       weightInputRef.current?.focus();
     } catch {
-      setSaveLogError("Could not save training log. Please try again.");
+      setSaveLogError("No se pudo guardar el registro. Intentá de nuevo.");
     } finally {
       setIsSavingLog(false);
     }
@@ -541,7 +541,7 @@ export default function Home() {
       setAthleteName("");
       setAthletes(await getAthletes());
     } catch {
-      setCreateAthleteError("Could not create athlete. Please try again.");
+      setCreateAthleteError("No se pudo crear el atleta. Intentá de nuevo.");
     } finally {
       setIsCreatingAthlete(false);
     }
@@ -560,7 +560,7 @@ export default function Home() {
               </svg>
             </div>
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">NSDash</h1>
-            <p className="text-slate-400 text-sm mt-1">Athlete performance tracker</p>
+            <p className="text-slate-400 text-sm mt-1">Seguimiento de rendimiento deportivo</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
@@ -574,12 +574,12 @@ export default function Home() {
                 onChange={(e) => setLoginEmail(e.target.value)}
                 required
                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-                placeholder="coach@example.com"
+                placeholder="preparador@ejemplo.com"
               />
             </div>
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1.5">
-                Password
+                Contraseña
               </label>
               <input
                 id="password"
@@ -599,7 +599,7 @@ export default function Home() {
               disabled={isLoggingIn}
               className="w-full bg-indigo-600 text-white font-semibold py-2.5 rounded-lg hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoggingIn ? "Signing in..." : "Sign in"}
+              {isLoggingIn ? "Iniciando sesión..." : "Iniciar sesión"}
             </button>
           </form>
         </div>
@@ -628,21 +628,21 @@ export default function Home() {
             onClick={handleLogout}
             className="text-sm px-4 py-2 rounded-lg border border-slate-200 text-slate-600 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 active:scale-95 transition-all"
           >
-            Logout
+            Cerrar sesión
           </button>
         </div>
 
         {/* ── Athletes ──────────────────────────────────────────────────────── */}
         {/* [NEW] Card wrapper for each section */}
         <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <h2 className="text-base font-semibold text-slate-700 mb-4">Athletes</h2>
+          <h2 className="text-base font-semibold text-slate-700 mb-4">Atletas</h2>
 
           <form onSubmit={handleCreateAthlete} className="flex gap-2 mb-4">
             <input
               type="text"
               value={athleteName}
               onChange={(e) => setAthleteName(e.target.value)}
-              placeholder="New athlete name..."
+              placeholder="Nombre del atleta..."
               required
               className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
             />
@@ -651,7 +651,7 @@ export default function Home() {
               disabled={isCreatingAthlete}
               className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50"
             >
-              {isCreatingAthlete ? "Adding..." : "+ Add"}
+              {isCreatingAthlete ? "Agregando..." : "+ Agregar"}
             </button>
           </form>
           {createAthleteError && (
@@ -661,7 +661,7 @@ export default function Home() {
           {/* [NEW] Loading state */}
           {isLoadingAthletes ? (
             <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-8 text-center shadow-sm">
-              <p className="text-sm text-slate-500 animate-pulse">Loading athletes...</p>
+              <p className="text-sm text-slate-500 animate-pulse">Cargando atletas...</p>
             </div>
           ) : safeAthletes.length === 0 ? (
             <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100 px-5 py-8 text-center shadow-sm">
@@ -671,8 +671,8 @@ export default function Home() {
                   <path d="M6 20c0-3.31 2.69-6 6-6s6 2.69 6 6" />
                 </svg>
               </div>
-              <p className="text-sm font-semibold text-slate-700 mb-2">No athletes found</p>
-              <p className="text-sm text-slate-500">Add your first athlete to start tracking strength progress.</p>
+              <p className="text-sm font-semibold text-slate-700 mb-2">No tenés atletas todavía</p>
+              <p className="text-sm text-slate-500">Creá uno para empezar.</p>
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -684,7 +684,7 @@ export default function Home() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 ${
                     selectedAthleteId === athlete.id
                       ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:opacity-90"
                   }`}
                 >
                   {athlete.name}
@@ -696,7 +696,7 @@ export default function Home() {
 
         {/* ── Exercises ─────────────────────────────────────────────────────── */}
         <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <h2 className="text-base font-semibold text-slate-700 mb-4">Exercises</h2>
+          <h2 className="text-base font-semibold text-slate-700 mb-4">Ejercicios</h2>
           {/* [NEW] Pill-style exercise buttons with selection highlight */}
           <div className="flex flex-wrap gap-2">
             {EXERCISES.map((exercise) => (
@@ -707,7 +707,7 @@ export default function Home() {
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 ${
                   selectedExerciseId === exercise.id
                     ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:opacity-90"
                 }`}
               >
                 {exercise.name}
@@ -715,24 +715,46 @@ export default function Home() {
             ))}
           </div>
           {selectedAthleteId === null && (
-            <p className="text-xs text-slate-400 mt-3">← Select an athlete first.</p>
+            <p className="text-xs text-slate-400 mt-3">← Seleccioná un atleta primero.</p>
           )}
         </section>
 
         {/* ── Create log + data (only shown when both selected) ─────────────── */}
-        {selectedAthleteId !== null && selectedExerciseId !== null && (
+        {selectedAthleteId === null ? (
+          <section className="bg-white rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100 p-8 text-center shadow-sm mt-6">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 mx-auto mb-4">
+              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z" />
+                <path d="M6 20c0-3.31 2.69-6 6-6s6 2.69 6 6" />
+              </svg>
+            </div>
+            <h3 className="text-base font-semibold text-slate-800 mb-2">Seleccioná un atleta</h3>
+            <p className="text-sm text-slate-500 max-w-sm mx-auto">Elegí un atleta arriba para comenzar a registrar sesiones de entrenamiento.</p>
+          </section>
+        ) : selectedExerciseId === null ? (
+          <section className="bg-white rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100 p-8 text-center shadow-sm mt-6">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 mx-auto mb-4">
+              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 4v16" />
+                <path d="M4 12h16" />
+              </svg>
+            </div>
+            <h3 className="text-base font-semibold text-slate-800 mb-2">Seleccioná un ejercicio para ver el progreso</h3>
+            <p className="text-sm text-slate-500 max-w-sm mx-auto">Elegí un ejercicio arriba para ver el gráfico de progreso y registros de entrenamiento.</p>
+          </section>
+        ) : (
           <>
             {/* Create log form */}
-            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mt-6">
               <h2 className="text-base font-semibold text-slate-700 mb-4">
-                New Training Log —{" "}
+                Nuevo Registro de Entrenamiento —{" "}
                 <span className="text-indigo-600">{selectedAthlete?.name}</span>
                 {" / "}
                 <span className="text-indigo-600">{selectedExercise?.name}</span>
               </h2>
               <form onSubmit={handleCreateLog} className="flex flex-wrap gap-3 items-end">
                 <div>
-                  <label htmlFor="log-date" className="block text-xs text-slate-500 mb-1">Date</label>
+                  <label htmlFor="log-date" className="block text-xs text-slate-500 mb-1">Fecha</label>
                   <input
                     id="log-date"
                     type="date"
@@ -743,7 +765,7 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="log-weight" className="block text-xs text-slate-500 mb-1">Weight (kg)</label>
+                  <label htmlFor="log-weight" className="block text-xs text-slate-500 mb-1">Peso (kg)</label>
                   <input
                     id="log-weight"
                     type="number"
@@ -755,7 +777,7 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="log-reps" className="block text-xs text-slate-500 mb-1">Reps</label>
+                  <label htmlFor="log-reps" className="block text-xs text-slate-500 mb-1">Repeticiones</label>
                   <input
                     id="log-reps"
                     type="number"
@@ -770,7 +792,7 @@ export default function Home() {
                   disabled={isSavingLog}
                   className="px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50"
                 >
-                  {isSavingLog ? "Saving..." : "Save Log"}
+                  {isSavingLog ? "Guardando..." : "Guardar Registro"}
                 </button>
               </form>
               {saveLogError && (
@@ -781,7 +803,7 @@ export default function Home() {
             {/* [NEW] Loading state for logs */}
             {isLoadingLogs ? (
               <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                <p className="text-sm text-slate-400 animate-pulse">Loading logs...</p>
+                <p className="text-sm text-slate-400 animate-pulse">Cargando registros...</p>
               </section>
             ) : logs.length === 0 ? (
               <section className="bg-white rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100 p-8 text-center shadow-sm">
@@ -791,14 +813,14 @@ export default function Home() {
                     <path d="M4 12h16" />
                   </svg>
                 </div>
-                <h3 className="text-base font-semibold text-slate-800 mb-2">No training logs yet</h3>
-                <p className="text-sm text-slate-500 max-w-sm mx-auto">Record your first session to unlock training insights, RM progression, and consistency tracking.</p>
+                <h3 className="text-base font-semibold text-slate-800 mb-2">Este atleta todavía no tiene registros</h3>
+                <p className="text-sm text-slate-500 max-w-sm mx-auto">Registrá tu primera sesión para desbloquear información de entrenamiento, progresión de RM y seguimiento de consistencia.</p>
               </section>
             ) : (
               <>
                 {/* Performance summary — uses unfiltered logs (always shows latest) */}
-                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                  <h2 className="text-base font-semibold text-slate-700 mb-4">Performance Summary</h2>
+                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mt-6">
+                  <h2 className="text-base font-semibold text-slate-700 mb-4">Resumen de Rendimiento</h2>
                   {(() => {
                     const lastLog = logs[0];
                     const previousLog = logs[1];
@@ -809,7 +831,7 @@ export default function Home() {
                       : null;
                     return (
                       // [NEW] 3-column stat grid instead of plain text
-                      <div className="grid grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="bg-slate-50 rounded-xl p-4">
                           <p className="text-xs text-slate-400 mb-1">Est. 1RM</p>
                           <p className="text-2xl font-bold text-slate-800">
@@ -818,20 +840,20 @@ export default function Home() {
                           </p>
                         </div>
                         <div className="bg-slate-50 rounded-xl p-4">
-                          <p className="text-xs text-slate-400 mb-1">vs Previous</p>
+                          <p className="text-xs text-slate-400 mb-1">vs Anterior</p>
                           {changePct !== null ? (
                             <p className={`text-2xl font-bold ${changePct >= 0 ? "text-emerald-600" : "text-red-500"}`}>
                               {changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}
                               <span className="text-sm font-normal ml-0.5">%</span>
                             </p>
                           ) : (
-                            <p className="text-sm text-slate-400 mt-1">No previous data</p>
+                            <p className="text-sm text-slate-400 mt-1">Sin datos anteriores</p>
                           )}
                         </div>
                         <div className="bg-slate-50 rounded-xl p-4">
-                          <p className="text-xs text-slate-400 mb-1">Last session</p>
+                          <p className="text-xs text-slate-400 mb-1">Última sesión</p>
                           <p className="text-sm font-semibold text-slate-700">
-                            {lastLog.weight} kg × {lastLog.reps}
+                            {lastLog.weight} kg × {lastLog.reps} rep{lastLog.reps !== 1 ? "s" : ""}
                           </p>
                           <p className="text-xs text-slate-400 mt-0.5">{lastLog.date}</p>
                         </div>
@@ -841,26 +863,32 @@ export default function Home() {
                 </section>
 
                 {/* Chart */}
-                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mt-6">
                   <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-                    <h2 className="text-base font-semibold text-slate-700">RM Progression</h2>
+                    <h2 className="text-base font-semibold text-slate-700">Progresión de RM</h2>
+                  </div>
 
-                    {/* [NEW] Date range select filter */}
-                    <select
-                      value={dateRange}
-                      onChange={(e) => setDateRange(e.target.value as DateRange)}
-                      className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition bg-white text-slate-600"
-                    >
-                      {DATE_RANGE_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                  {/* [NEW] Date range filter buttons */}
+                  <div className="flex gap-2 mb-6">
+                    {DATE_RANGE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setDateRange(opt.value)}
+                        className={`px-4 py-2 text-sm font-medium rounded-lg transition-all active:scale-95 ${
+                          dateRange === opt.value
+                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:opacity-80"
+                        }`}
+                      >
+                        {opt.shortLabel}
+                      </button>
+                    ))}
                   </div>
 
                   {/* [NEW] Empty state when filter returns no results */}
                   {chartData.length === 0 ? (
                     <div className="flex items-center justify-center h-40 text-slate-400 text-sm">
-                      No data for this range
+                      Sin datos para este rango
                     </div>
                   ) : (
                     // [NEW] ResponsiveContainer makes chart fill its parent width
@@ -898,11 +926,11 @@ export default function Home() {
                 </section>
 
                 {/* Training Insights — advanced analytics cards */}
-                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mt-6">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                     <div>
-                      <h2 className="text-base font-semibold text-slate-700">Training Insights</h2>
-                      <p className="text-sm text-slate-500 max-w-xl">A quick snapshot of session volume, estimated RM, and recent consistency for this athlete.</p>
+                      <h2 className="text-base font-semibold text-slate-700">Información de Entrenamiento</h2>
+                      <p className="text-sm text-slate-500 max-w-xl">Un resumen rápido del volumen de sesiones, RM estimado y consistencia reciente del atleta.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
@@ -911,48 +939,48 @@ export default function Home() {
                       </span>
                       <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
                         <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                        {analytics.consistencyStreak} sessions last 30 days
+                        {analytics.consistencyStreak} sesiones en 30 días
                       </span>
                     </div>
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                      <p className="text-xs text-slate-400 uppercase tracking-wide">Total sessions</p>
+                      <p className="text-xs text-slate-400 uppercase tracking-wide">Total sesiones</p>
                       <p className="mt-3 text-3xl font-semibold text-slate-900">{analytics.totalSessions}</p>
                     </div>
                     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                      <p className="text-xs text-slate-400 uppercase tracking-wide">Avg. estimated RM</p>
+                      <p className="text-xs text-slate-400 uppercase tracking-wide">RM estimado promedio</p>
                       <p className="mt-3 text-3xl font-semibold text-indigo-600">{analytics.averageEstimatedRM} kg</p>
                     </div>
                     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                      <p className="text-xs text-slate-400 uppercase tracking-wide">Best estimated RM</p>
+                      <p className="text-xs text-slate-400 uppercase tracking-wide">Mejor RM estimado</p>
                       <p className="mt-3 text-3xl font-semibold text-slate-900">{analytics.bestEstimatedRM} kg</p>
                     </div>
                     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                      <p className="text-xs text-slate-400 uppercase tracking-wide">Volume load</p>
+                      <p className="text-xs text-slate-400 uppercase tracking-wide">Carga total</p>
                       <p className="mt-3 text-3xl font-semibold text-slate-900">{analytics.volumeLoad}</p>
                     </div>
                   </div>
 
                   <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                    <p className="text-xs text-slate-400 uppercase tracking-wide">Trend analysis</p>
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">Análisis de tendencia</p>
                     <p className="mt-3 text-sm text-slate-700">{analytics.insight}</p>
                     <p className="mt-2 text-sm text-slate-500">{analytics.peakInsight} {analytics.frequencyInsight}</p>
                   </div>
                 </section>
 
-                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mt-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-base font-semibold text-slate-700">Training Logs</h2>
+                    <h2 className="text-base font-semibold text-slate-700">Registros de Entrenamiento</h2>
                     {/* [NEW] Count indicator */}
                     <span className="text-xs text-slate-400">
-                      {filteredLogs.length} of {logs.length} entries
+                      {filteredLogs.length} de {logs.length} registros
                     </span>
                   </div>
 
                   {filteredLogs.length === 0 ? (
-                    <p className="text-sm text-slate-400 text-center py-6">No data for this range</p>
+                    <p className="text-sm text-slate-400 text-center py-6">Sin datos para este rango</p>
                   ) : (
                     <ul className="divide-y divide-slate-100">
                       {filteredLogs.map((log) => (
@@ -968,7 +996,7 @@ export default function Home() {
                             <div className="flex items-center gap-4">
                               <span className="text-xs text-slate-400 w-20">{log.date}</span>
                               <span className="text-sm text-slate-700 font-medium">
-                                {log.weight} kg × {log.reps} reps
+                                {log.weight} kg × {log.reps} rep{log.reps !== 1 ? "s" : ""}
                               </span>
                             </div>
                             <span className="text-sm font-semibold text-indigo-600">
@@ -988,30 +1016,30 @@ export default function Home() {
         {/* ── Training summary ──────────────────────────────────────────────── */}
         {selectedLogId !== null && !summary && (
           <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-            <p className="text-sm text-slate-400">Could not load log summary.</p>
+            <p className="text-sm text-slate-400">No se pudo cargar el resumen del registro.</p>
           </section>
         )}
 
         {summary && (
           <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
             <h2 className="text-base font-semibold text-slate-700 mb-4">
-              Training Summary — {summary.exercise}
+              Resumen de Sesión — {summary.exercise}
             </h2>
             {/* [NEW] Same 3-column stat grid for summary */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
               <div className="bg-slate-50 rounded-xl p-4">
-                <p className="text-xs text-slate-400 mb-1">Weight</p>
+                <p className="text-xs text-slate-400 mb-1">Peso</p>
                 <p className="text-xl font-bold text-slate-800">
                   {summary.weight}{" "}
                   <span className="text-sm font-normal text-slate-400">kg</span>
                 </p>
               </div>
               <div className="bg-slate-50 rounded-xl p-4">
-                <p className="text-xs text-slate-400 mb-1">Reps</p>
+                <p className="text-xs text-slate-400 mb-1">Repeticiones</p>
                 <p className="text-xl font-bold text-slate-800">{summary.reps}</p>
               </div>
               <div className="bg-slate-50 rounded-xl p-4">
-                <p className="text-xs text-slate-400 mb-1">Est. RM</p>
+                <p className="text-xs text-slate-400 mb-1">RM Est.</p>
                 <p className="text-xl font-bold text-indigo-600">
                   {summary.estimated_rm}{" "}
                   <span className="text-sm font-normal text-slate-400">kg</span>
@@ -1019,14 +1047,14 @@ export default function Home() {
               </div>
             </div>
 
-            <h3 className="text-sm font-semibold text-slate-600 mb-3">Percentage Table</h3>
+            <h3 className="text-sm font-semibold text-slate-600 mb-3">Tabla de Porcentajes</h3>
             {/* [NEW] Styled table with rounded container */}
             <div className="overflow-hidden rounded-xl border border-slate-100">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-400">Reps</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-400">Weight (kg)</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-400">Peso (kg)</th>
                   </tr>
                 </thead>
                 <tbody>
