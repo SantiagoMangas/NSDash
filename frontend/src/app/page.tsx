@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -11,9 +11,54 @@ import {
   YAxis,
 } from "recharts";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { ChartTooltip } from "@/components/strength/ChartTooltip";
+import { PRCard } from "@/components/speed/PRCard";
+import { SprintChartTooltip } from "@/components/speed/SprintChartTooltip";
+import { SprintInsights } from "@/components/speed/SprintInsights";
+import { SuggestedNextSessionCard } from "@/components/speed/SuggestedNextSessionCard";
+import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
+import { LoadingCard } from "@/components/ui/LoadingCard";
+import { ToastContainer } from "@/components/ui/Toast";
+import { useToasts } from "@/hooks/useToasts";
+import { DATE_RANGE_OPTIONS, EXERCISES, SPRINT_DISTANCES } from "@/lib/constants";
+import { filterLogsByDateRange, parseApiError } from "@/lib/utils";
+import {
+  formatChartDate,
+  getTodayDate,
+  parseLocalDate,
+  startOfToday,
+} from "@/lib/date";
+import {
+  buildSessionSuggestion,
+  buildSprintInsights,
+  fatigueStyle,
+  sessionScoreStyle,
+} from "@/lib/sprint-ui";
+import {
+  persistAthleteId,
+  persistDateRange,
+  persistExerciseId,
+  persistModule,
+  persistSprintDateRange,
+  persistSprintDistance,
+  readStoredAthleteId,
+  readStoredDateRange,
+  readStoredExerciseId,
+  readStoredModule,
+  readStoredSprintDistance,
+  STORAGE_KEYS,
+} from "@/lib/storage";
+import type {
+  Athlete,
+  CreateSprintResult,
+  DateRange,
+  DistanceComparison,
+  Module,
+  SessionScore,
+  SprintLog,
+} from "@/lib/types";
 
-type Athlete = { id: number; name: string };
+const BASE_URL = "http://127.0.0.1:8000";
 
 type RawLog = {
   id: number;
@@ -53,53 +98,6 @@ type ProgressListItem = {
   reps: number;
   estimated_rm: number;
 };
-
-// [NEW] Date range filter type
-type DateRange = "7d" | "30d" | "90d" | "all";
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const BASE_URL = "http://127.0.0.1:8000";
-
-const EXERCISES = [
-  { id: 1, name: "Back Squat" },
-  { id: 2, name: "Deadlift" },
-  { id: 3, name: "Bench Press" },
-  { id: 4, name: "Overhead Press" },
-  { id: 5, name: "Hip Thrust" },
-];
-
-// [NEW] Date range options for the buttons and display
-const DATE_RANGE_OPTIONS: { value: DateRange; label: string; shortLabel: string }[] = [
-  { value: "7d",  label: "Últimos 7 días",  shortLabel: "7D"  },
-  { value: "30d", label: "Últimos 30 días", shortLabel: "30D" },
-  { value: "90d", label: "Últimos 90 días", shortLabel: "90D" },
-  { value: "all", label: "Todo el período", shortLabel: "TODO" },
-];
-
-// ─── Date helpers ─────────────────────────────────────────────────────────────
-
-// [FIX] Parse "YYYY-MM-DD" as LOCAL date to avoid UTC timezone offset bugs
-function parseLocalDate(dateStr: string): Date {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function getTodayDate(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
-// [NEW] Format "2024-01-15" → "Jan 15" for XAxis labels
-function formatChartDate(dateStr: string): string {
-  const d = parseLocalDate(dateStr);
-  return d.toLocaleDateString("es-AR", { month: "short", day: "numeric" });
-}
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 
@@ -223,33 +221,105 @@ async function getSummary(logId: number): Promise<LogSummary | null> {
   }
 }
 
-// ─── Custom Recharts tooltip ──────────────────────────────────────────────────
-
-// [NEW] Styled tooltip component
-function ChartTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: Array<{ value: number }>;
-  label?: string;
-}) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3">
-      <p className="text-xs text-slate-400 mb-1 font-medium">
-        {label ? formatChartDate(label) : ""}
-      </p>
-      <p className="text-base font-bold text-indigo-600">
-        {payload[0].value}{" "}
-        <span className="text-xs font-normal text-slate-500">kg RM est.</span>
-      </p>
-    </div>
-  );
+// [NEW] Sprint tracking API functions
+async function getSprintLogs(athleteId: number): Promise<SprintLog[]> {
+  try {
+    const res = await fetch(
+      `${BASE_URL}/athletes/${athleteId}/sprint-logs`,
+      { headers: getAuthHeaders() }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data)
+      ? data.filter(
+          (item): item is SprintLog =>
+            item !== null &&
+            typeof item === "object" &&
+            typeof item.id === "number" &&
+            typeof item.athlete_id === "number" &&
+            typeof item.distance === "number" &&
+            typeof item.time_seconds === "number" &&
+            typeof item.date === "string" &&
+            typeof item.average_speed === "number"
+        )
+      : [];
+  } catch {
+    return [];
+  }
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+async function createSprintLog(
+  athleteId: number,
+  distance: number,
+  timeSeconds: number,
+  date: string,
+  notes: string | null,
+): Promise<CreateSprintResult> {
+  const fallback = "No se pudo guardar el sprint. Intentá de nuevo.";
+  try {
+    const res = await fetch(`${BASE_URL}/sprint-logs`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        athlete_id: athleteId,
+        distance,
+        time_seconds: timeSeconds,
+        date,
+        notes,
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { log: null, error: parseApiError(data, fallback) };
+    }
+    if (!data || typeof data !== "object") {
+      return { log: null, error: fallback };
+    }
+    return {
+      log: {
+        id: data.id,
+        athlete_id: data.athlete_id,
+        distance: data.distance,
+        time_seconds: data.time_seconds,
+        date: data.date,
+        notes: data.notes || null,
+        average_speed: data.average_speed,
+        pr_time: data.pr_time ?? null,
+        is_pr: Boolean(data.is_pr),
+        improvement_percent: data.improvement_percent ?? null,
+        previous_pr_time: data.previous_pr_time ?? null,
+        fatigue_percent: data.fatigue_percent ?? 0,
+        fatigue_level: data.fatigue_level || "Normal",
+        fatigue_color: data.fatigue_color || "blue",
+      },
+      error: null,
+    };
+  } catch {
+    return { log: null, error: fallback };
+  }
+}
+
+// [NEW] Get session quality score
+async function getSessionScore(athleteId: number, date: string): Promise<SessionScore | null> {
+  try {
+    const res = await fetch(
+      `${BASE_URL}/athletes/${athleteId}/sprint-session-score?date=${date}`,
+      { headers: getAuthHeaders() }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      score: data.score || 0,
+      rating: data.rating || "",
+      consistency: data.consistency || 0,
+      avg_fatigue: data.avg_fatigue || 0,
+      has_pr: data.has_pr || false,
+      sprint_count: data.sprint_count || 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
@@ -258,10 +328,16 @@ export default function Home() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
+  const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
+  const prefsReadyRef = useRef(false);
+  const athleteHydratedRef = useRef(false);
+
   const [athletes, setAthletes] = useState<Athlete[]>([]);
-  const [isLoadingAthletes, setIsLoadingAthletes] = useState(false); // [NEW]
+  const [isLoadingAthletes, setIsLoadingAthletes] = useState(false);
   const [selectedAthleteId, setSelectedAthleteId] = useState<number | null>(null);
-  const [selectedExerciseId, setSelectedExerciseId] = useState<number | null>(null);
+  const [selectedExerciseId, setSelectedExerciseId] = useState<number | null>(
+    () => readStoredExerciseId(),
+  );
   const [logs, setLogs] = useState<ProgressListItem[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false); // [NEW]
   const [logsReloadToken, setLogsReloadToken] = useState(0);
@@ -276,8 +352,26 @@ export default function Home() {
   const [isCreatingAthlete, setIsCreatingAthlete] = useState(false);
   const [createAthleteError, setCreateAthleteError] = useState<string | null>(null);
 
-  // [NEW] Date range filter state
-  const [dateRange, setDateRange] = useState<DateRange>("all");
+  const [dateRange, setDateRange] = useState<DateRange>(() =>
+    readStoredDateRange(STORAGE_KEYS.dateRange),
+  );
+  const [module, setModule] = useState<Module>(() => readStoredModule());
+
+  const [sprintLogs, setSprintLogs] = useState<SprintLog[]>([]);
+  const [isLoadingSprintLogs, setIsLoadingSprintLogs] = useState(false);
+  const [sprintDistance, setSprintDistance] = useState<number | null>(() =>
+    readStoredSprintDistance(),
+  );
+  const [sprintTime, setSprintTime] = useState("");
+  const [sprintDate, setSprintDate] = useState(getTodayDate());
+  const [sprintNotes, setSprintNotes] = useState("");
+  const [isSavingSprint, setIsSavingSprint] = useState(false);
+  const [savingSprintError, setSavingSprintError] = useState<string | null>(null);
+  const [sprintReloadToken, setSprintReloadToken] = useState(0);
+  const [sessionScore, setSessionScore] = useState<SessionScore | null>(null);
+  const [sprintDateRange, setSprintDateRange] = useState<DateRange>(() =>
+    readStoredDateRange(STORAGE_KEYS.sprintDateRange),
+  );
 
   const weightInputRef = useRef<HTMLInputElement | null>(null);
   const safeAthletes = Array.isArray(athletes) ? athletes : [];
@@ -287,6 +381,7 @@ export default function Home() {
   // ─── Token init ────────────────────────────────────────────────────────────
   useEffect(() => {
     setToken(localStorage.getItem("token"));
+    prefsReadyRef.current = true;
   }, []);
 
   // ─── Load athletes ─────────────────────────────────────────────────────────
@@ -297,6 +392,61 @@ export default function Home() {
       .then(setAthletes)
       .finally(() => setIsLoadingAthletes(false));
   }, [token]);
+
+  // ─── Restaurar atleta persistido (con fallback seguro) ─────────────────────
+  useEffect(() => {
+    if (!token || isLoadingAthletes || athleteHydratedRef.current) return;
+    if (athletes.length === 0) {
+      if (!isLoadingAthletes) athleteHydratedRef.current = true;
+      return;
+    }
+    const storedId = readStoredAthleteId();
+    if (storedId !== null && athletes.some((a) => a.id === storedId)) {
+      setSelectedAthleteId(storedId);
+    }
+    athleteHydratedRef.current = true;
+  }, [token, athletes, isLoadingAthletes]);
+
+  useEffect(() => {
+    if (!athleteHydratedRef.current || athletes.length === 0) return;
+    if (
+      selectedAthleteId !== null &&
+      !athletes.some((a) => a.id === selectedAthleteId)
+    ) {
+      setSelectedAthleteId(null);
+    }
+  }, [athletes, selectedAthleteId]);
+
+  // ─── Persistencia UI (localStorage) ────────────────────────────────────────
+  useEffect(() => {
+    if (!prefsReadyRef.current) return;
+    persistModule(module);
+  }, [module]);
+
+  useEffect(() => {
+    if (!prefsReadyRef.current) return;
+    persistDateRange(dateRange);
+  }, [dateRange]);
+
+  useEffect(() => {
+    if (!prefsReadyRef.current) return;
+    persistSprintDateRange(sprintDateRange);
+  }, [sprintDateRange]);
+
+  useEffect(() => {
+    if (!prefsReadyRef.current || !athleteHydratedRef.current) return;
+    persistAthleteId(selectedAthleteId);
+  }, [selectedAthleteId]);
+
+  useEffect(() => {
+    if (!prefsReadyRef.current) return;
+    persistExerciseId(selectedExerciseId);
+  }, [selectedExerciseId]);
+
+  useEffect(() => {
+    if (!prefsReadyRef.current) return;
+    persistSprintDistance(sprintDistance);
+  }, [sprintDistance]);
 
   // ─── Load logs ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -348,6 +498,26 @@ export default function Home() {
     };
     loadLogs();
   }, [selectedAthleteId, selectedExerciseId, logsReloadToken]);
+
+  // [NEW] Load sprint logs
+  useEffect(() => {
+    const loadSprintLogs = async () => {
+      if (selectedAthleteId === null) {
+        setSprintLogs([]);
+        setSessionScore(null);
+        return;
+      }
+      setIsLoadingSprintLogs(true);
+      const logs = await getSprintLogs(selectedAthleteId);
+      setIsLoadingSprintLogs(false);
+      setSprintLogs(logs.sort((a, b) => b.date.localeCompare(a.date)));
+
+      const today = getTodayDate();
+      const todayScore = await getSessionScore(selectedAthleteId, today);
+      setSessionScore(todayScore && todayScore.sprint_count > 0 ? todayScore : null);
+    };
+    loadSprintLogs();
+  }, [selectedAthleteId, sprintReloadToken]);
 
   // ─── [NEW] Filtered logs based on dateRange ────────────────────────────────
   const filteredLogs = useMemo(() => {
@@ -441,6 +611,78 @@ export default function Home() {
     };
   }, [filteredLogs, logs]);
 
+  const sprintComparison = useMemo((): DistanceComparison[] => {
+    return SPRINT_DISTANCES.flatMap((distance) => {
+      const atDist = sprintLogs.filter((s) => s.distance === distance);
+      if (atDist.length === 0) return [];
+      const sorted = [...atDist].sort(
+        (a, b) => b.date.localeCompare(a.date) || b.id - a.id,
+      );
+      const last = sorted[0];
+      const bestTime = Math.min(...atDist.map((s) => s.time_seconds));
+      const diffPercent = ((last.time_seconds - bestTime) / bestTime) * 100;
+      return [{
+        distance,
+        lastTime: last.time_seconds,
+        bestTime,
+        diffPercent,
+        lastDate: last.date,
+        isLastPr: last.time_seconds === bestTime,
+        fatigueLevel: last.fatigue_level,
+        fatigueColor: last.fatigue_color,
+        fatiguePercent: last.fatigue_percent,
+      }];
+    });
+  }, [sprintLogs]);
+
+  const recentPrs = useMemo(() => {
+    const prByDistance = new Map<number, SprintLog>();
+    for (const log of sprintLogs) {
+      if (!log.is_pr) continue;
+      const existing = prByDistance.get(log.distance);
+      if (!existing || log.date.localeCompare(existing.date) > 0) {
+        prByDistance.set(log.distance, log);
+      }
+    }
+    return [...prByDistance.values()].sort((a, b) => b.date.localeCompare(a.date));
+  }, [sprintLogs]);
+
+  const filteredSprintLogs = useMemo(
+    () => filterLogsByDateRange(sprintLogs, sprintDateRange),
+    [sprintLogs, sprintDateRange],
+  );
+
+  const sprintChartData = useMemo(
+    () =>
+      [...filteredSprintLogs]
+        .sort(
+          (a, b) =>
+            parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime(),
+        )
+        .map((s) => ({
+          date: s.date,
+          average_speed: s.average_speed,
+          distance: s.distance,
+          time_seconds: s.time_seconds,
+        })),
+    [filteredSprintLogs],
+  );
+
+  const sprintInsights = useMemo(
+    () => buildSprintInsights(sprintLogs, filteredSprintLogs, sessionScore),
+    [sprintLogs, filteredSprintLogs, sessionScore],
+  );
+
+  const sessionSuggestion = useMemo(
+    () => buildSessionSuggestion(sprintLogs, sprintComparison, sessionScore),
+    [sprintLogs, sprintComparison, sessionScore],
+  );
+
+  const handleSelectSprintDistance = useCallback((distance: number) => {
+    setSprintDistance(distance);
+    setModule("speed");
+  }, []);
+
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
@@ -475,21 +717,19 @@ export default function Home() {
     setLogs([]);
     setSelectedLogId(null);
     setSummary(null);
-    setDateRange("all"); // [NEW] reset filter on logout
+    athleteHydratedRef.current = false;
   };
 
   const handleSelectAthlete = (id: number) => {
     setSelectedAthleteId(id);
     setSelectedLogId(null);
     setSummary(null);
-    setDateRange("all"); // [NEW] reset filter on selection change
   };
 
   const handleSelectExercise = (id: number) => {
     setSelectedExerciseId(id);
     setSelectedLogId(null);
     setSummary(null);
-    setDateRange("all"); // [NEW] reset filter on selection change
   };
 
   const handleSelectLog = async (logId: number) => {
@@ -520,8 +760,10 @@ export default function Home() {
       setWeight("");
       setReps("");
       weightInputRef.current?.focus();
+      pushToast("success", "Registro de fuerza guardado");
     } catch {
       setSaveLogError("No se pudo guardar el registro. Intentá de nuevo.");
+      pushToast("error", "Error al guardar el registro");
     } finally {
       setIsSavingLog(false);
     }
@@ -540,10 +782,57 @@ export default function Home() {
       if (!res.ok) throw new Error();
       setAthleteName("");
       setAthletes(await getAthletes());
+      pushToast("success", "Atleta creado");
     } catch {
       setCreateAthleteError("No se pudo crear el atleta. Intentá de nuevo.");
+      pushToast("error", "Error al crear el atleta");
     } finally {
       setIsCreatingAthlete(false);
+    }
+  };
+
+  // [NEW] Handle create sprint log
+  const handleCreateSprintLog = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (isSavingSprint) return;
+    if (selectedAthleteId === null || sprintDistance === null) return;
+
+    const timeVal = Number(sprintTime);
+    if (!Number.isFinite(timeVal) || timeVal <= 0) {
+      setSavingSprintError("Ingresá un tiempo válido mayor a 0 segundos.");
+      return;
+    }
+
+    setIsSavingSprint(true);
+    setSavingSprintError(null);
+    try {
+      const { log, error } = await createSprintLog(
+        selectedAthleteId,
+        sprintDistance,
+        timeVal,
+        sprintDate,
+        sprintNotes || null,
+      );
+      if (error || !log) {
+        const msg = error ?? "No se pudo guardar el sprint. Intentá de nuevo.";
+        setSavingSprintError(msg);
+        pushToast("error", "Error al guardar");
+        return;
+      }
+      setSprintReloadToken((p) => p + 1);
+      const score = await getSessionScore(selectedAthleteId, sprintDate);
+      if (score && score.sprint_count > 0) setSessionScore(score);
+      pushToast("success", "Sprint registrado");
+      if (log.is_pr) {
+        pushToast("pr", `Nuevo PR en ${log.distance}m`);
+      }
+      setSprintTime("");
+      setSprintNotes("");
+    } catch {
+      setSavingSprintError("No se pudo guardar el sprint. Intentá de nuevo.");
+      pushToast("error", "Error al guardar");
+    } finally {
+      setIsSavingSprint(false);
     }
   };
 
@@ -610,8 +899,8 @@ export default function Home() {
   // ─── Main dashboard ────────────────────────────────────────────────────────
 
   return (
-    // [NEW] Centered max-w-5xl container, slate-50 background
     <main className="min-h-screen bg-slate-50">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
 
         {/* ── Header ────────────────────────────────────────────────────────── */}
@@ -632,8 +921,31 @@ export default function Home() {
           </button>
         </div>
 
-        {/* ── Athletes ──────────────────────────────────────────────────────── */}
-        {/* [NEW] Card wrapper for each section */}
+        {/* [NEW] Module selector ────────────────────────────────────────────── */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setModule("strength")}
+            className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all active:scale-95 ${
+              module === "strength"
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            💪 Fuerza
+          </button>
+          <button
+            onClick={() => setModule("speed")}
+            className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all active:scale-95 ${
+              module === "speed"
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            ⚡ Velocidad
+          </button>
+        </div>
+
+        {/* ── Atletas (compartido) ──────────────────────────────────────────── */}
         <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
           <h2 className="text-base font-semibold text-slate-700 mb-4">Atletas</h2>
 
@@ -664,16 +976,16 @@ export default function Home() {
               <p className="text-sm text-slate-500 animate-pulse">Cargando atletas...</p>
             </div>
           ) : safeAthletes.length === 0 ? (
-            <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100 px-5 py-8 text-center shadow-sm">
-              <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 mx-auto mb-4">
-                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <EmptyStateCard
+              icon={
+                <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z" />
                   <path d="M6 20c0-3.31 2.69-6 6-6s6 2.69 6 6" />
                 </svg>
-              </div>
-              <p className="text-sm font-semibold text-slate-700 mb-2">No tenés atletas todavía</p>
-              <p className="text-sm text-slate-500">Creá uno para empezar.</p>
-            </div>
+              }
+              title="Todavía no tenés atletas cargados"
+              description="Agregá tu primer atleta para empezar a registrar fuerza y velocidad."
+            />
           ) : (
             <div className="flex flex-wrap gap-2">
               {safeAthletes.map((athlete) => (
@@ -694,6 +1006,10 @@ export default function Home() {
           )}
         </section>
 
+
+        {/* Strength module wrapper */}
+        {module === "strength" && (
+          <>
         {/* ── Exercises ─────────────────────────────────────────────────────── */}
         <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
           <h2 className="text-base font-semibold text-slate-700 mb-4">Ejercicios</h2>
@@ -802,9 +1118,7 @@ export default function Home() {
 
             {/* [NEW] Loading state for logs */}
             {isLoadingLogs ? (
-              <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                <p className="text-sm text-slate-400 animate-pulse">Cargando registros...</p>
-              </section>
+              <LoadingCard message="Cargando registros..." />
             ) : logs.length === 0 ? (
               <section className="bg-white rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100 p-8 text-center shadow-sm">
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 mx-auto mb-4">
@@ -1072,6 +1386,389 @@ export default function Home() {
             </div>
           </section>
         )}
+          </>
+        )}
+
+        {/* [NEW] Speed module wrapper */}
+        {module === "speed" && selectedAthleteId === null ? (
+          <EmptyStateCard
+            icon={
+              <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z" />
+                <path d="M6 20c0-3.31 2.69-6 6-6s6 2.69 6 6" />
+              </svg>
+            }
+            title="Seleccioná un atleta"
+            description="Elegí un atleta arriba para comenzar a registrar sprints y ver el análisis de velocidad."
+          />
+        ) : module === "speed" ? (
+          <div className="space-y-6">
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+              <h2 className="text-base font-semibold text-slate-700 mb-1">
+                Nuevo Sprint — <span className="text-indigo-600">{selectedAthlete?.name}</span>
+              </h2>
+              <p className="text-xs text-slate-400 mb-4">Registrá tiempos con distancias estándar de sprint</p>
+              <form onSubmit={handleCreateSprintLog} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="sprint-date" className="block text-xs text-slate-500 mb-2">Fecha</label>
+                    <input
+                      id="sprint-date"
+                      type="date"
+                      value={sprintDate}
+                      onChange={(e) => setSprintDate(e.target.value)}
+                      required
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="sprint-time" className="block text-xs text-slate-500 mb-2">Tiempo (seg)</label>
+                    <input
+                      id="sprint-time"
+                      type="number"
+                      value={sprintTime}
+                      onChange={(e) => setSprintTime(e.target.value)}
+                      required
+                      step="0.01"
+                      min="0.01"
+                      disabled={isSavingSprint}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+                
+                {/* [NEW] Distance button selector */}
+                <div>
+                  <label className="block text-xs text-slate-500 mb-2">Distancia</label>
+                  <div className="flex flex-wrap gap-2">
+                    {SPRINT_DISTANCES.map((dist) => (
+                      <button
+                        key={dist}
+                        type="button"
+                        onClick={() => setSprintDistance(dist)}
+                        className={`min-w-[3.5rem] px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 active:scale-[0.97] ${
+                          sprintDistance === dist
+                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-200 ring-2 ring-indigo-300 ring-offset-1"
+                            : "bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        {dist}m
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                
+                <div>
+                  <label htmlFor="sprint-notes" className="block text-xs text-slate-500 mb-2">Notas (opcional)</label>
+                  <input
+                    id="sprint-notes"
+                    type="text"
+                    value={sprintNotes}
+                    onChange={(e) => setSprintNotes(e.target.value)}
+                    placeholder="Ej: Sentí fatiga, superficie mojada..."
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+                  />
+                </div>
+                
+                <button
+                  type="submit"
+                  disabled={
+                    isSavingSprint ||
+                    sprintDistance === null ||
+                    !sprintTime ||
+                    Number(sprintTime) <= 0
+                  }
+                  className="w-full px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
+                >
+                  {isSavingSprint ? "Guardando..." : "Guardar Sprint"}
+                </button>
+              </form>
+              {savingSprintError && (
+                <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 transition-all duration-200">
+                  <span className="mt-0.5 shrink-0" aria-hidden>⚠️</span>
+                  <p>{savingSprintError}</p>
+                </div>
+              )}
+            </section>
+
+            {/* Sprint logs list section */}
+            {isLoadingSprintLogs ? (
+              <LoadingCard message="Cargando sprints..." />
+            ) : sprintLogs.length === 0 ? (
+              <EmptyStateCard
+                icon={
+                  <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                }
+                title="Todavía no hay registros de velocidad"
+                description="Registrá tu primer sprint para desbloquear PR, fatiga, insights automáticos y el gráfico de progresión."
+              />
+            ) : (
+              <>
+                <PRCard prs={recentPrs} />
+
+                {sessionSuggestion && (
+                  <SuggestedNextSessionCard
+                    suggestion={sessionSuggestion}
+                    onSelectDistance={handleSelectSprintDistance}
+                  />
+                )}
+
+                {sessionScore && (
+                  <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 transition-all duration-300">
+                    <h2 className="text-base font-semibold text-slate-700 mb-1">Calidad de Sesión</h2>
+                    <p className="text-xs text-slate-400 mb-4">Hoy · {sessionScore.sprint_count} sprint{sessionScore.sprint_count !== 1 ? "s" : ""}</p>
+                    {(() => {
+                      const style = sessionScoreStyle(sessionScore.rating);
+                      return (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className={`rounded-xl p-4 border transition-all duration-300 ${style.card}`}>
+                            <p className="text-xs text-slate-500 mb-2 uppercase tracking-wide">Session Quality Score</p>
+                            <div className="flex items-baseline gap-1">
+                              <p className={`text-4xl font-bold ${style.score}`}>
+                                {sessionScore.score.toFixed(0)}
+                              </p>
+                              <p className="text-sm text-slate-500">/100</p>
+                            </div>
+                            <p className={`text-sm font-semibold mt-2 ${style.label}`}>
+                              {sessionScore.rating}
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="bg-slate-50 rounded-lg p-3 transition-colors">
+                              <p className="text-xs text-slate-500">Consistencia</p>
+                              <p className="text-lg font-semibold text-slate-700">{sessionScore.consistency.toFixed(0)}%</p>
+                            </div>
+                            <div className="bg-slate-50 rounded-lg p-3 transition-colors">
+                              <p className="text-xs text-slate-500">Fatiga promedio</p>
+                              <p className="text-lg font-semibold text-slate-700">{sessionScore.avg_fatigue.toFixed(1)}%</p>
+                            </div>
+                            {sessionScore.has_pr && (
+                              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                                <p className="text-xs text-emerald-700 font-semibold">🏆 PR logrado en esta sesión</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </section>
+                )}
+
+                {sprintComparison.length > 0 && (
+                  <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                    <h2 className="text-base font-semibold text-slate-700 mb-1">Comparación por Distancia</h2>
+                    <p className="text-xs text-slate-400 mb-4">Última sesión vs mejor histórica</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {sprintComparison.map((cmp) => {
+                        const fatigue = fatigueStyle(cmp.fatigueColor);
+                        return (
+                          <div
+                            key={cmp.distance}
+                            className={`rounded-xl border p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 ${
+                              cmp.isLastPr ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <p className="text-sm font-bold text-slate-700">{cmp.distance}m</p>
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold border ${fatigue.badge}`}>
+                                {cmp.fatigueLevel}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-center">
+                              <div>
+                                <p className="text-xs text-slate-400">Última sesión</p>
+                                <p className="text-lg font-bold text-slate-800">{cmp.lastTime.toFixed(2)}s</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-emerald-600">Mejor histórica</p>
+                                <p className="text-lg font-bold text-emerald-600">{cmp.bestTime.toFixed(2)}s</p>
+                              </div>
+                            </div>
+                            <p className={`text-xs font-semibold mt-3 text-center ${
+                              cmp.diffPercent <= 0 ? "text-emerald-600" : cmp.diffPercent <= 3 ? "text-blue-600" : "text-orange-600"
+                            }`}>
+                              {cmp.diffPercent <= 0
+                                ? "En PR — marca actual"
+                                : `+${cmp.diffPercent.toFixed(1)}% vs mejor histórica`}
+                            </p>
+                            <p className="text-xs text-slate-400 text-center mt-1">{cmp.lastDate}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                  <h2 className="text-base font-semibold text-slate-700 mb-4">Resumen de Velocidad</h2>
+                  {(() => {
+                    const lastSprint = sprintLogs[0];
+                    const avgSpeed = sprintLogs.reduce((sum, s) => sum + s.average_speed, 0) / sprintLogs.length;
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="bg-slate-50 rounded-xl p-4 transition-all duration-300">
+                          <p className="text-xs text-slate-400 mb-1">Velocidad actual</p>
+                          <p className="text-2xl font-bold text-slate-800">
+                            {lastSprint.average_speed.toFixed(2)}
+                            <span className="text-sm font-normal text-slate-400 ml-1">m/s</span>
+                          </p>
+                        </div>
+                        <div className="bg-slate-50 rounded-xl p-4 transition-all duration-300">
+                          <p className="text-xs text-slate-400 mb-1">Velocidad promedio</p>
+                          <p className="text-2xl font-bold text-slate-800">
+                            {avgSpeed.toFixed(2)}
+                            <span className="text-sm font-normal text-slate-400 ml-1">m/s</span>
+                          </p>
+                        </div>
+                        <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-200 transition-all duration-300">
+                          <p className="text-xs text-indigo-600 mb-1 font-semibold">Último sprint</p>
+                          <p className="text-2xl font-bold text-indigo-600">
+                            {lastSprint.distance}m
+                            <span className="text-sm font-normal text-indigo-500 ml-1">· {lastSprint.time_seconds.toFixed(2)}s</span>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </section>
+
+                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 space-y-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="text-base font-semibold text-slate-700">Progresión de Velocidad</h2>
+                      <p className="text-xs text-slate-400 mt-0.5">Velocidad media (m/s) por fecha</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {DATE_RANGE_OPTIONS.map((opt) => (
+                        <button
+                          key={`sprint-${opt.value}`}
+                          type="button"
+                          onClick={() => setSprintDateRange(opt.value)}
+                          className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-all duration-200 active:scale-95 ${
+                            sprintDateRange === opt.value
+                              ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          {opt.shortLabel}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <SprintInsights insights={sprintInsights} />
+
+                  {sprintChartData.length === 0 ? (
+                    <EmptyStateCard
+                      icon={
+                        <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M4 19h16" />
+                          <path d="M4 15l4-6 4 3 4-7 4 10" />
+                        </svg>
+                      }
+                      title="Sin datos en este rango"
+                      description="Probá ampliar el período o registrá más sprints para ver la progresión."
+                    />
+                  ) : (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={sprintChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                        <XAxis
+                          dataKey="date"
+                          tickFormatter={formatChartDate}
+                          tick={{ fontSize: 11, fill: "#94a3b8" }}
+                          axisLine={false}
+                          tickLine={false}
+                          label={{ value: "Fecha", position: "insideBottom", offset: -2, fontSize: 10, fill: "#94a3b8" }}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 11, fill: "#94a3b8" }}
+                          axisLine={false}
+                          tickLine={false}
+                          width={44}
+                          label={{ value: "m/s", angle: -90, position: "insideLeft", fontSize: 10, fill: "#94a3b8" }}
+                        />
+                        <Tooltip content={<SprintChartTooltip />} cursor={{ stroke: "#c7d2fe", strokeWidth: 1 }} />
+                        <Line
+                          type="monotone"
+                          dataKey="average_speed"
+                          name="Velocidad"
+                          stroke="#4f46e5"
+                          strokeWidth={3}
+                          dot={{ r: 4, fill: "#4f46e5", strokeWidth: 0 }}
+                          activeDot={{ r: 7, fill: "#4f46e5", stroke: "#fff", strokeWidth: 3 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </section>
+
+                <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                  <h2 className="text-base font-semibold text-slate-700 mb-4">Registros de Sprints</h2>
+                  <div className="space-y-2">
+                    {sprintLogs.map((log) => {
+                      const fatigue = fatigueStyle(log.fatigue_color);
+                      return (
+                        <div
+                          key={log.id}
+                          className={`border rounded-xl p-3.5 transition-all duration-200 hover:shadow-md active:scale-[0.99] ${
+                            log.is_pr
+                              ? "bg-gradient-to-r from-emerald-50 to-white border-emerald-200 shadow-sm shadow-emerald-100/80"
+                              : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1">
+                              <div className="flex flex-wrap items-center gap-2 mb-2">
+                                <span className="text-xs text-slate-400 font-medium">{log.date}</span>
+                                <span className="text-sm font-semibold text-slate-700">
+                                  {log.distance}m × {log.time_seconds.toFixed(2)}s
+                                </span>
+                                {log.is_pr && (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500 text-white text-xs font-bold shadow-sm">
+                                    🏆 PR
+                                  </span>
+                                )}
+                                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold border ${fatigue.badge}`}>
+                                  {log.fatigue_level} · {log.fatigue_percent}%
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-3 text-xs text-slate-600">
+                                <span>⚡ {log.average_speed.toFixed(2)} m/s</span>
+                                {log.pr_time !== null && !log.is_pr && (
+                                  <span className="text-slate-500">
+                                    PR: {log.pr_time.toFixed(2)}s
+                                  </span>
+                                )}
+                              </div>
+                              {log.is_pr && log.improvement_percent !== null && (
+                                <p className="text-xs text-emerald-700 font-semibold mt-2">
+                                  ↓ {log.improvement_percent}% más rápido vs PR anterior
+                                </p>
+                              )}
+                              {log.notes && (
+                                <p className="text-xs text-slate-500 mt-1 italic">&quot;{log.notes}&quot;</p>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-sm font-bold ${log.is_pr ? "text-emerald-600" : "text-indigo-600"}`}>
+                                {log.average_speed.toFixed(2)}
+                              </p>
+                              <p className="text-xs text-slate-500">m/s</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              </>
+            )}
+
+          </div>
+        ) : null}
 
       </div>
     </main>

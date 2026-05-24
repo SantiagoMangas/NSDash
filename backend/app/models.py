@@ -37,3 +37,14 @@ class TrainingLog(Base):
     weight = Column(Float, nullable=False)
     reps = Column(Integer, nullable=False)
     estimated_rm = Column(Float, nullable=True)
+
+
+class SprintLog(Base):
+    __tablename__ = "sprint_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    athlete_id = Column(Integer, ForeignKey("athletes.id"), nullable=False)
+    distance = Column(Float, nullable=False)
+    time_seconds = Column(Float, nullable=False)
+    date = Column(Date, nullable=False)
+    notes = Column(String, nullable=True)

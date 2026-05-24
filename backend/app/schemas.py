@@ -1,6 +1,8 @@
-from pydantic import BaseModel
+import math
 from datetime import date
 from typing import Optional
+
+from pydantic import BaseModel, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -49,3 +51,42 @@ class TrainingLogResponse(BaseModel):
     weight: float
     reps: int
     estimated_rm: Optional[float]
+
+
+class SprintLogCreate(BaseModel):
+    athlete_id: int
+    distance: float
+    time_seconds: float
+    date: date
+    notes: Optional[str] = None
+
+    @field_validator("distance", "time_seconds")
+    @classmethod
+    def validate_positive_finite(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("El valor debe ser un número válido")
+        if value <= 0:
+            raise ValueError("El valor debe ser mayor a 0")
+        return value
+
+
+class SprintLogResponse(BaseModel):
+    id: int
+    athlete_id: int
+    distance: float
+    time_seconds: float
+    date: date
+    notes: Optional[str]
+    average_speed: float
+
+
+class SprintLogDetail(BaseModel):
+    id: int
+    athlete_id: int
+    distance: float
+    time_seconds: float
+    date: date
+    notes: Optional[str]
+    average_speed: float
+    pr_time: Optional[float]
+    fatigue_percent: Optional[float]

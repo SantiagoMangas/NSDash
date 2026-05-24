@@ -1,3 +1,5 @@
+import math
+
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
@@ -234,4 +236,219 @@ def get_log_summary(log_id: int, db: Session = Depends(get_db), current_user: in
         "date": log.date,
         "estimated_rm": round(float(log.estimated_rm), 2),
         "percentages": [{"reps": row["reps"], "weight": row["weight"]} for row in percentages],
+    }
+
+
+# ─── Sprint Tracking Endpoints ──────────────────────────────────────────────
+
+def validate_sprint_values(distance: float, time_seconds: float) -> None:
+    if not math.isfinite(distance) or not math.isfinite(time_seconds):
+        raise HTTPException(status_code=400, detail="Los valores deben ser números válidos")
+    if distance <= 0:
+        raise HTTPException(status_code=400, detail="La distancia debe ser mayor a 0")
+    if time_seconds <= 0:
+        raise HTTPException(status_code=400, detail="El tiempo debe ser mayor a 0")
+
+
+def safe_average_speed(distance: float, time_seconds: float) -> float:
+    if time_seconds <= 0 or not math.isfinite(distance) or not math.isfinite(time_seconds):
+        return 0.0
+    speed = distance / time_seconds
+    return round(speed, 2) if math.isfinite(speed) else 0.0
+
+
+def classify_fatigue(fatigue_percent: float) -> tuple[str, str]:
+    if fatigue_percent < 3:
+        return "Excelente", "emerald"
+    if fatigue_percent < 5:
+        return "Normal", "blue"
+    return "Fatiga alta", "orange"
+
+
+def session_rating(score: float) -> str:
+    if score >= 85:
+        return "Excelente sesión"
+    if score >= 70:
+        return "Buena"
+    if score >= 50:
+        return "Fatiga"
+    return "Mala recuperación"
+
+
+def compute_sprint_metrics(log: models.SprintLog, sprint_logs: list[models.SprintLog]) -> dict[str, object]:
+    average_speed = safe_average_speed(float(log.distance), float(log.time_seconds))
+    same_distance_logs = [l for l in sprint_logs if l.distance == log.distance]
+    pr_time_value = min(l.time_seconds for l in same_distance_logs) if same_distance_logs else None
+    is_pr = pr_time_value == log.time_seconds
+    sorted_by_time = sorted(same_distance_logs, key=lambda l: l.time_seconds)
+    previous_pr = sorted_by_time[1].time_seconds if len(sorted_by_time) > 1 else None
+    improvement_percent = None
+    if previous_pr and is_pr:
+        improvement_percent = ((previous_pr - log.time_seconds) / previous_pr) * 100
+    if same_distance_logs and len(same_distance_logs) > 1:
+        best_time = min(l.time_seconds for l in same_distance_logs)
+        worst_time = max(l.time_seconds for l in same_distance_logs)
+        fatigue_percent = ((worst_time - best_time) / best_time) * 100
+    else:
+        fatigue_percent = 0.0
+    fatigue_level, fatigue_color = classify_fatigue(fatigue_percent)
+    return {
+        "id": log.id,
+        "athlete_id": log.athlete_id,
+        "distance": log.distance,
+        "time_seconds": log.time_seconds,
+        "date": log.date,
+        "notes": log.notes,
+        "average_speed": round(average_speed, 2),
+        "pr_time": pr_time_value,
+        "is_pr": is_pr,
+        "improvement_percent": round(improvement_percent, 1) if improvement_percent else None,
+        "previous_pr_time": previous_pr,
+        "fatigue_percent": round(fatigue_percent, 1),
+        "fatigue_level": fatigue_level,
+        "fatigue_color": fatigue_color,
+    }
+
+
+@app.post("/sprint-logs")
+def create_sprint_log(
+    sprint_log: schemas.SprintLogCreate, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
+) -> dict[str, object]:
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == sprint_log.athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    validate_sprint_values(float(sprint_log.distance), float(sprint_log.time_seconds))
+
+    db_sprint_log = models.SprintLog(
+        athlete_id=sprint_log.athlete_id,
+        distance=sprint_log.distance,
+        time_seconds=sprint_log.time_seconds,
+        date=sprint_log.date,
+        notes=sprint_log.notes,
+    )
+    db.add(db_sprint_log)
+    db.commit()
+    db.refresh(db_sprint_log)
+
+    all_logs = (
+        db.query(models.SprintLog)
+        .filter(models.SprintLog.athlete_id == sprint_log.athlete_id)
+        .all()
+    )
+    return compute_sprint_metrics(db_sprint_log, all_logs)
+
+
+@app.get("/athletes/{athlete_id}/sprint-logs", response_model=list[dict[str, object]])
+def get_athlete_sprint_logs(
+    athlete_id: int, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
+) -> list[dict[str, object]]:
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    sprint_logs = (
+        db.query(models.SprintLog)
+        .filter(models.SprintLog.athlete_id == athlete_id)
+        .order_by(models.SprintLog.date.asc())
+        .all()
+    )
+    
+    return [compute_sprint_metrics(log, sprint_logs) for log in sprint_logs]
+
+
+# [NEW] Session Quality Score endpoint
+@app.get("/athletes/{athlete_id}/sprint-session-score")
+def get_sprint_session_score(
+    athlete_id: int, date: str, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
+) -> dict[str, object]:
+    """Calculate quality score for a specific training session (day)"""
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    from datetime import datetime as dt
+    session_date = dt.strptime(date, "%Y-%m-%d").date()
+    
+    session_logs = (
+        db.query(models.SprintLog)
+        .filter(
+            models.SprintLog.athlete_id == athlete_id,
+            models.SprintLog.date == session_date
+        )
+        .all()
+    )
+    
+    if not session_logs:
+        return {
+            "score": 0,
+            "rating": "Sin datos",
+            "consistency": 0,
+            "avg_fatigue": 0,
+            "has_pr": False,
+            "sprint_count": 0,
+        }
+    
+    # Get all sprints for fatigue calculations
+    all_logs = (
+        db.query(models.SprintLog)
+        .filter(models.SprintLog.athlete_id == athlete_id)
+        .all()
+    )
+    
+    # Calculate metrics for session
+    speeds = []
+    fatigue_values = []
+    has_pr = False
+    
+    for log in session_logs:
+        speed = safe_average_speed(float(log.distance), float(log.time_seconds))
+        speeds.append(speed)
+        
+        # Check if is PR for distance
+        same_distance_logs = [l for l in all_logs if l.distance == log.distance]
+        pr_time = min([l.time_seconds for l in same_distance_logs]) if same_distance_logs else None
+        if pr_time == log.time_seconds:
+            has_pr = True
+        
+        # Fatiga for this distance
+        if same_distance_logs and len(same_distance_logs) > 1:
+            best_time = min([l.time_seconds for l in same_distance_logs])
+            worst_time = max([l.time_seconds for l in same_distance_logs])
+            fatigue = ((worst_time - best_time) / best_time) * 100
+            fatigue_values.append(fatigue)
+    
+    # Consistency: inverse of std dev
+    if len(speeds) > 1:
+        import statistics
+        std_dev = statistics.stdev(speeds)
+        consistency = max(0, 100 - (std_dev * 20))  # Normalize
+    else:
+        consistency = 100
+    
+    # Average fatigue
+    avg_fatigue = sum(fatigue_values) / len(fatigue_values) if fatigue_values else 0
+    
+    # Calculate score (0-100)
+    consistency_weight = 0.3
+    fatigue_weight = 0.3
+    pr_weight = 0.4
+    
+    fatigue_score = max(0, 100 - avg_fatigue * 10)  # Higher fatigue = lower score
+    pr_bonus = 20 if has_pr else 0
+    
+    score = (
+        (consistency * consistency_weight) +
+        (fatigue_score * fatigue_weight) +
+        (pr_bonus * pr_weight)
+    )
+    score = min(100, max(0, score))
+    
+    return {
+        "score": round(score, 1),
+        "rating": session_rating(score),
+        "consistency": round(consistency, 1),
+        "avg_fatigue": round(avg_fatigue, 1),
+        "has_pr": has_pr,
+        "sprint_count": len(session_logs),
     }
