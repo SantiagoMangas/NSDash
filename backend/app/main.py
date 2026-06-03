@@ -1,18 +1,24 @@
 import math
+from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from . import auth, models, schemas
+from . import auth, models, schemas, vam_calculator
 from .db import Base, SessionLocal, engine, get_db
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -72,6 +78,18 @@ def on_startup() -> None:
 @app.get("/")
 def read_root() -> dict[str, str]:
     return {"message": "Backend is running"}
+
+
+@app.get("/health")
+def health_check() -> dict[str, str]:
+    """Simple health check endpoint to verify CORS is working."""
+    return {"status": "ok"}
+
+
+@app.get("/test-auth")
+def test_auth(current_user: int = Depends(auth.get_current_user)) -> dict[str, int]:
+    """Test endpoint to verify auth and CORS work together."""
+    return {"user_id": current_user}
 
 
 @app.post("/auth/login", response_model=schemas.Token)
@@ -452,3 +470,329 @@ def get_sprint_session_score(
         "has_pr": has_pr,
         "sprint_count": len(session_logs),
     }
+
+
+# ─── VAM Endpoints ──────────────────────────────────────────────
+
+
+@app.post("/vam-tests", response_model=schemas.VamTestResponse)
+def create_vam_test(
+    data: schemas.VamTestInput,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user)
+) -> dict:
+    """
+    Recibe los datos del test, calcula VAM, persiste en DB,
+    y retorna la VAM calculada + todas las zonas + tiempos de sprint.
+    """
+    # Verify athlete ownership
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == data.athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    try:
+        # Calculate VAM from test data
+        vam_values = vam_calculator.calculate_vam_from_test(
+            data.test_type, data.value1, data.value2
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # Create and persist VamTest record
+    db_vam_test = models.VamTest(
+        athlete_id=data.athlete_id,
+        date=data.date,
+        test_type=data.test_type,
+        vam_mpm=vam_values["vam_mpm"],
+        vam_kmh=vam_values["vam_kmh"],
+        vam_ms=vam_values["vam_ms"],
+        notes=data.notes,
+    )
+    db.add(db_vam_test)
+    db.commit()
+    db.refresh(db_vam_test)
+    
+    # Calculate zones and sprint times
+    zonas = vam_calculator.calculate_zones(vam_values["vam_mpm"])
+    tiempos_sprint = vam_calculator.calculate_sprint_times(vam_values["vam_ms"])
+    
+    return {
+        "id": db_vam_test.id,
+        "athlete_id": db_vam_test.athlete_id,
+        "date": db_vam_test.date,
+        "test_type": db_vam_test.test_type,
+        "vam_mpm": db_vam_test.vam_mpm,
+        "vam_kmh": db_vam_test.vam_kmh,
+        "vam_ms": db_vam_test.vam_ms,
+        "notes": db_vam_test.notes,
+        "zonas": zonas,
+        "tiempos_sprint": tiempos_sprint,
+    }
+
+
+@app.get("/athletes/{athlete_id}/vam-tests", response_model=list[schemas.VamTestSummary])
+def list_vam_tests(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user)
+) -> list:
+    """Lista todos los tests VAM del atleta, ordenados por fecha desc."""
+    # Verify athlete ownership
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    tests = (
+        db.query(models.VamTest)
+        .filter(models.VamTest.athlete_id == athlete_id)
+        .order_by(models.VamTest.date.desc())
+        .all()
+    )
+    
+    return tests
+
+
+def format_seconds_to_pace(seconds: float) -> str:
+    if not math.isfinite(seconds) or seconds <= 0:
+        return "0:00"
+
+    minutes = int(seconds // 60)
+    remaining = int(round(seconds - (minutes * 60)))
+    if remaining == 60:
+        minutes += 1
+        remaining = 0
+    return f"{minutes}:{remaining:02d}"
+
+
+def build_dashboard_zones(zones: list[dict]) -> list[dict]:
+    converted = []
+    for zone in zones:
+        converted.append({
+            "zona": zone["zona"],
+            "intensidad": zone["intensidad"],
+            "pct_min": zone["pct_min"],
+            "pct_max": zone["pct_max"],
+            "vel_min_kmh": zone["vel_min_kmh"],
+            "vel_max_kmh": zone["vel_max_kmh"],
+            "velocidad_ms": zone["velocidad_ms"],
+            "velocidad_kmh": zone["velocidad_kmh"],
+            "ritmo_min": format_seconds_to_pace(zone["ritmo_min_seg"]),
+            "ritmo_max": format_seconds_to_pace(zone["ritmo_max_seg"]),
+        })
+    return converted
+
+
+def build_vam_test_zones(zones: list[dict]) -> list[dict]:
+    """Convert raw zones for VamTestResponse (keeps ritmo_min_seg/ritmo_max_seg as numbers)."""
+    converted = []
+    for zone in zones:
+        converted.append({
+            "zona": zone["zona"],
+            "intensidad": zone["intensidad"],
+            "pct_min": zone["pct_min"],
+            "pct_max": zone["pct_max"],
+            "velocidad_ms": zone["velocidad_ms"],
+            "velocidad_kmh": zone["velocidad_kmh"],
+            "vel_min_kmh": zone["vel_min_kmh"],
+            "vel_max_kmh": zone["vel_max_kmh"],
+            "ritmo_min_seg": zone["ritmo_min_seg"],
+            "ritmo_max_seg": zone["ritmo_max_seg"],
+        })
+    return converted
+
+
+def get_best_vam_test(tests: list[models.VamTest]) -> models.VamTest:
+    return max(tests, key=lambda test: (test.vam_kmh, test.date))
+
+
+def convert_units(value: float, from_unit: str) -> dict[str, float | str]:
+    from_unit = from_unit.lower()
+    if from_unit == "kmh":
+        kmh = value
+    elif from_unit == "mpm":
+        kmh = 60.0 / value if value > 0 else 0.0
+    elif from_unit == "ms":
+        kmh = value * 3.6
+    else:
+        raise HTTPException(status_code=400, detail="from_unit debe ser kmh, mpm o ms")
+
+    mpm = 60.0 / kmh if kmh > 0 else 0.0
+    ms = kmh / 3.6
+    mpm_str = format_seconds_to_pace(3600 / kmh) if kmh > 0 else "0:00"
+
+    return {
+        "kmh": round(kmh, 2),
+        "mpm": round(mpm, 2),
+        "mpm_str": mpm_str,
+        "ms": round(ms, 2),
+    }
+    return max(tests, key=lambda test: (test.vam_kmh, test.date))
+
+
+@app.get("/vam-tests/{test_id}", response_model=schemas.VamTestResponse)
+def get_vam_test(
+    test_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user)
+) -> dict:
+    """Retorna un test VAM con sus zonas y tiempos calculados."""
+    test = db.query(models.VamTest).filter(models.VamTest.id == test_id).first()
+    if not test:
+        raise HTTPException(status_code=404, detail="VamTest not found")
+    
+    # Verify athlete ownership
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == test.athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Calculate zones and sprint times
+    zonas = build_vam_test_zones(vam_calculator.calculate_zones(test.vam_mpm))
+    tiempos_sprint = vam_calculator.calculate_sprint_times(test.vam_ms)
+    
+    return {
+        "id": test.id,
+        "athlete_id": test.athlete_id,
+        "date": test.date,
+        "test_type": test.test_type,
+        "vam_mpm": test.vam_mpm,
+        "vam_kmh": test.vam_kmh,
+        "vam_ms": test.vam_ms,
+        "notes": test.notes,
+        "zonas": zonas,
+        "tiempos_sprint": tiempos_sprint,
+    }
+
+
+@app.get("/athletes/{athlete_id}/vam-progress")
+def get_vam_progress(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user)
+) -> dict:
+    """
+    Retorna el historial de VAM del atleta para graficar progresión.
+    Respuesta: {"athlete_id": int, "history": [{"date", "vam_kmh", "test_type"}]}
+    """
+    # Verify athlete ownership
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    tests = (
+        db.query(models.VamTest)
+        .filter(models.VamTest.athlete_id == athlete_id)
+        .order_by(models.VamTest.date.asc())
+        .all()
+    )
+    
+    history = [
+        {
+            "date": test.date,
+            "vam_kmh": test.vam_kmh,
+            "test_type": test.test_type,
+        }
+        for test in tests
+    ]
+    
+    return {
+        "athlete_id": athlete_id,
+        "history": history,
+    }
+
+
+@app.get("/athletes/{athlete_id}/velocity-dashboard", response_model=schemas.VelocityDashboard)
+def get_velocity_dashboard(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user)
+) -> dict:
+    """Retorna el dashboard de velocidad completo usando siempre el mejor VAM registrado."""
+    try:
+        athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+        if not athlete or athlete.coach_id != current_user:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        tests = (
+            db.query(models.VamTest)
+            .filter(models.VamTest.athlete_id == athlete_id)
+            .all()
+        )
+        if not tests:
+            raise HTTPException(status_code=404, detail="No VAM tests found for athlete")
+
+        best_test = get_best_vam_test(tests)
+        best_test_data = {
+            "test_type": best_test.test_type,
+            "date": best_test.date,
+            "vam_kmh": best_test.vam_kmh,
+            "vam_mpm": best_test.vam_mpm,
+            "vam_ms": best_test.vam_ms,
+            "vam_mpm_formatted": format_seconds_to_pace(3600 / best_test.vam_kmh) if best_test.vam_kmh > 0 else "0:00",
+        }
+
+        all_tests_summary = [
+            {
+                "test_type": test.test_type,
+                "date": test.date,
+                "vam_kmh": test.vam_kmh,
+            }
+            for test in sorted(tests, key=lambda test: test.date, reverse=True)
+        ]
+
+        vam_tests = [test for test in tests if test.test_type in {"vam_2000m", "vam_5min"}]
+        best_vam_source_test = get_best_vam_test(vam_tests) if vam_tests else None
+        if best_vam_source_test:
+            zones_source = {
+                "available": True,
+                "test_type": best_vam_source_test.test_type,
+                "vam_kmh": best_vam_source_test.vam_kmh,
+            }
+            training_zones = build_dashboard_zones(vam_calculator.calculate_zones(best_vam_source_test.vam_mpm))
+        else:
+            zones_source = {"available": False, "test_type": None, "vam_kmh": None}
+            training_zones = []
+
+        best_30_15_test = max((test for test in tests if test.test_type == "test_30_15_ift"), key=lambda test: (test.vam_kmh, test.date), default=None)
+        best_yoyo_test = max((test for test in tests if test.test_type == "yoyo_ri1"), key=lambda test: (test.vam_kmh, test.date), default=None)
+
+        interval_tables = {
+            "from_vam": vam_calculator.calculate_interval_table(best_vam_source_test.vam_kmh, "vam") if best_vam_source_test else None,
+            "from_30_15": vam_calculator.calculate_interval_table(best_30_15_test.vam_kmh, "30_15") if best_30_15_test else None,
+            "from_yoyo": vam_calculator.calculate_interval_table(best_yoyo_test.vam_kmh, "yoyo") if best_yoyo_test else None,
+        }
+
+        sprint_reference = vam_calculator.calculate_sprint_times(best_test.vam_ms)
+
+        unit_conversions = {
+            "vam_kmh": best_test.vam_kmh,
+            "vam_mpm": best_test.vam_mpm,
+            "vam_ms": best_test.vam_ms,
+            "vam_mpm_formatted": best_test_data["vam_mpm_formatted"],
+        }
+
+        return {
+            "athlete_id": athlete_id,
+            "best_test": best_test_data,
+            "all_tests_summary": all_tests_summary,
+            "zones_source": zones_source,
+            "training_zones": training_zones,
+            "interval_tables": interval_tables,
+            "sprint_reference": sprint_reference,
+            "unit_conversions": unit_conversions,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] velocity-dashboard: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/convert-units", response_model=schemas.UnitConversionResponse)
+def post_convert_units(
+    payload: schemas.UnitConversionRequest,
+    current_user: int = Depends(auth.get_current_user)
+) -> dict[str, float | str]:
+    """Convierte entre km/h, m/min y m/s para el picker de la UI."""
+    return convert_units(payload.value, payload.from_unit)

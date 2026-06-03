@@ -48,3 +48,17 @@ class SprintLog(Base):
     time_seconds = Column(Float, nullable=False)
     date = Column(Date, nullable=False)
     notes = Column(String, nullable=True)
+
+
+class VamTest(Base):
+    __tablename__ = "vam_tests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    athlete_id = Column(Integer, ForeignKey("athletes.id"), nullable=False)
+    date = Column(Date, nullable=False)
+    test_type = Column(String, nullable=False)
+    # test_type values: "vam_2000m", "vam_5min", "test_30_15_ift", "yoyo_ri1"
+    vam_mpm = Column(Float, nullable=False)   # VAM en m/min
+    vam_kmh = Column(Float, nullable=False)   # VAM en km/h
+    vam_ms = Column(Float, nullable=False)    # VAM en m/s
+    notes = Column(String, nullable=True)

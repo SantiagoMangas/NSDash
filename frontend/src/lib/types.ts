@@ -49,6 +49,79 @@ export type DistanceComparison = {
   fatiguePercent: number;
 };
 
+export type VelocityZone = {
+  zona: string;
+  intensidad: string;
+  pct_min: number;
+  pct_max: number;
+  velocidad_ms: number;
+  velocidad_kmh: number;
+  vel_min_kmh: number;
+  vel_max_kmh: number;
+  ritmo_min: string;
+  ritmo_max: string;
+};
+
+export type IntervalRow = {
+  porcentaje: number;
+  velocidad_kmh: number;
+  ritmo_str: string;
+  tipo: "fit_corto" | "fit_largo" | "mas_training";
+};
+
+export type IntervalTable = {
+  source: string;
+  reference_kmh: number;
+  rows: IntervalRow[];
+};
+
+export type SprintReference = {
+  distancia: number;
+  tiempo_segundos: number;
+};
+
+export type VelocityDashboard = {
+  athlete_id: number;
+  best_test: {
+    test_type: string;
+    date: string;
+    vam_kmh: number;
+    vam_mpm: number;
+    vam_ms: number;
+    vam_mpm_formatted: string;
+  };
+  all_tests_summary: Array<{
+    test_type: string;
+    date: string;
+    vam_kmh: number;
+  }>;
+  training_zones: VelocityZone[];
+  zones_source: {
+    available: boolean;
+    test_type: string | null;
+    vam_kmh: number | null;
+  };
+  interval_tables: {
+    from_vam: IntervalTable | null;
+    from_30_15: IntervalTable | null;
+    from_yoyo: IntervalTable | null;
+  };
+  sprint_reference: SprintReference[];
+  unit_conversions: {
+    vam_kmh: number;
+    vam_mpm: number;
+    vam_ms: number;
+    vam_mpm_formatted: string;
+  };
+};
+
+export type UnitConverterValues = {
+  kmh: string;
+  mpm: string;
+  ms: string;
+  mpm_str: string;
+};
+
 export type SessionSuggestion = {
   title: string;
   description: string;
