@@ -549,7 +549,9 @@ export default function Home() {
     const totalRm = sourceLogs.reduce((sum, item) => sum + item.estimated_rm, 0);
     const bestEstimatedRM = totalSessions > 0 ? Math.max(...sourceLogs.map((item) => item.estimated_rm)) : 0;
     const averageEstimatedRM = totalSessions > 0 ? Math.round(totalRm / totalSessions) : 0;
-    const volumeLoad = sourceLogs.reduce((sum, item) => sum + item.weight * item.reps, 0);
+    const volumeLoad = Math.round(
+      sourceLogs.reduce((sum, item) => sum + item.weight * item.reps, 0),
+    );
 
     const today = startOfToday();
     const cutOff30 = new Date(today);
@@ -1304,7 +1306,10 @@ export default function Home() {
                     </div>
                     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
                       <p className="text-xs text-slate-400 uppercase tracking-wide">Carga total</p>
-                      <p className="mt-3 text-3xl font-semibold text-slate-900">{analytics.volumeLoad}</p>
+                      <p className="mt-3 text-3xl font-semibold text-slate-900">
+                        {analytics.volumeLoad.toLocaleString("es-AR")}{" "}
+                        <span className="text-lg font-medium text-slate-500">kg</span>
+                      </p>
                     </div>
                   </div>
 
