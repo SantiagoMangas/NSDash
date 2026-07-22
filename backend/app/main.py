@@ -14,14 +14,15 @@ DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:3001",
+    "https://ns-dash.vercel.app",
 ]
 
 
 def get_allowed_origins() -> list[str]:
     raw = os.getenv("ALLOWED_ORIGINS", "")
-    if not raw.strip():
-        return DEFAULT_ALLOWED_ORIGINS
-    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    extra = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    # Merge defaults with env so local dev keeps working in production too.
+    return list(dict.fromkeys(DEFAULT_ALLOWED_ORIGINS + extra))
 
 
 app = FastAPI()
