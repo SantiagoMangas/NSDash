@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getVamTests } from "@/lib/api/vam";
 
 interface VamTestStatus {
   vam_2000m: { active: boolean; last_date?: string; last_vam?: number };
@@ -29,8 +30,6 @@ const TEST_TYPES = [
   { key: "yoyo_ri1", label: "Yo-Yo Test RI1" },
 ];
 
-const BASE_URL = "http://127.0.0.1:8000";
-
 export function VamTestStatusAccordion({ athleteId, authToken }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -58,20 +57,7 @@ export function VamTestStatusAccordion({ athleteId, authToken }: Props) {
       setIsLoading(true);
       setError(null);
       try {
-        const res = await fetch(
-          `${BASE_URL}/athletes/${athleteId}/vam-tests`,
-          {
-            headers: {
-              Authorization: `Bearer ${authToken}`,
-            },
-          }
-        );
-
-        if (!res.ok) {
-          throw new Error("Error al cargar tests VAM");
-        }
-
-        const tests: VamTestResponse[] = await res.json();
+        const tests: VamTestResponse[] = await getVamTests(athleteId);
         const newStatus: VamTestStatus = {
           vam_2000m: { active: false },
           vam_5min: { active: false },

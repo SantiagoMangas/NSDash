@@ -1,4 +1,5 @@
 import math
+import os
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -9,15 +10,25 @@ from sqlalchemy.orm import Session
 from . import auth, models, schemas, vam_calculator
 from .db import Base, SessionLocal, engine, get_db
 
+DEFAULT_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+]
+
+
+def get_allowed_origins() -> list[str]:
+    raw = os.getenv("ALLOWED_ORIGINS", "")
+    if not raw.strip():
+        return DEFAULT_ALLOWED_ORIGINS
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-    ],
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,6 +41,14 @@ STRENGTH_EXERCISES = [
     "Overhead Press",
     "Hip Thrust",
 ]
+ATHLETE_PROFILE_COLUMNS: dict[str, str] = {
+    "sport": "VARCHAR(100)",
+    "height_cm": "FLOAT",
+    "body_weight_kg": "FLOAT",
+    "goal": "VARCHAR(500)",
+    "notes": "TEXT",
+}
+
 PERCENTAGE_MAP = {
     1: 100.0,
     2: 97.5,
@@ -44,6 +63,18 @@ PERCENTAGE_MAP = {
 }
 
 
+def migrate_athlete_profile_columns() -> None:
+    existing_columns = {
+        column["name"] for column in inspect(engine).get_columns("athletes")
+    }
+    with engine.begin() as connection:
+        for column_name, column_type in ATHLETE_PROFILE_COLUMNS.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    text(f"ALTER TABLE athletes ADD COLUMN {column_name} {column_type}")
+                )
+
+
 def build_percentage_table(estimated_rm: float) -> list[dict[str, float | int]]:
     table = []
     for reps, percentage in PERCENTAGE_MAP.items():
@@ -55,6 +86,7 @@ def build_percentage_table(estimated_rm: float) -> list[dict[str, float | int]]:
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    migrate_athlete_profile_columns()
     with SessionLocal() as db:
         existing_names = {exercise.name for exercise in db.query(models.Exercise).all()}
         missing_names = [name for name in STRENGTH_EXERCISES if name not in existing_names]
@@ -127,7 +159,15 @@ def register(register_request: schemas.LoginRequest, db: Session = Depends(get_d
 def create_athlete(
     athlete: schemas.AthleteCreate, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
 ) -> models.Athlete:
-    db_athlete = models.Athlete(name=athlete.name, coach_id=current_user)
+    db_athlete = models.Athlete(
+        name=athlete.name,
+        coach_id=current_user,
+        sport=athlete.sport,
+        height_cm=athlete.height_cm,
+        body_weight_kg=athlete.body_weight_kg,
+        goal=athlete.goal,
+        notes=athlete.notes,
+    )
     db.add(db_athlete)
     db.commit()
     db.refresh(db_athlete)
@@ -137,6 +177,28 @@ def create_athlete(
 @app.get("/athletes", response_model=list[schemas.AthleteResponse])
 def list_athletes(db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)) -> list[models.Athlete]:
     return db.query(models.Athlete).filter(models.Athlete.coach_id == current_user).all()
+
+
+@app.patch("/athletes/{athlete_id}", response_model=schemas.AthleteResponse)
+def update_athlete(
+    athlete_id: int,
+    athlete_update: schemas.AthleteUpdate,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> models.Athlete:
+    db_athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    if db_athlete is None:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+    if db_athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    update_data = athlete_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_athlete, field, value)
+
+    db.commit()
+    db.refresh(db_athlete)
+    return db_athlete
 
 
 @app.post("/exercises")

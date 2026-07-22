@@ -1,4 +1,12 @@
-export type Athlete = { id: number; name: string };
+export type Athlete = {
+  id: number;
+  name: string;
+  sport?: string | null;
+  height_cm?: number | null;
+  body_weight_kg?: number | null;
+  goal?: string | null;
+  notes?: string | null;
+};
 
 export type Module = "strength" | "speed";
 

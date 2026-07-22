@@ -12,6 +12,7 @@ import {
 } from "recharts";
 
 import { ChartTooltip } from "@/components/strength/ChartTooltip";
+import { AthleteProfileModal } from "@/components/athletes/AthleteProfileModal";
 import { VamTestForm } from "@/components/speed/VamTestForm";
 import { VamTestHistory } from "@/components/speed/VamTestHistory";
 import { VamTestStatusAccordion } from "@/components/speed/VamTestStatusAccordion";
@@ -41,6 +42,9 @@ import {
   readStoredModule,
   readStoredSprintDistance,
   STORAGE_KEYS,
+  getToken,
+  setToken as setTokenStorage,
+  clearToken,
 } from "@/lib/storage";
 import type {
   Athlete,
@@ -49,8 +53,20 @@ import type {
   Module,
   SprintLog,
 } from "@/lib/types";
-
-const BASE_URL = "http://127.0.0.1:8000";
+import { login } from "@/lib/api/auth";
+import { getAthletes, createAthlete } from "@/lib/api/athletes";
+import {
+  getAllLogs,
+  getProgress,
+  getSummary,
+  createTrainingLog,
+} from "@/lib/api/strength";
+import {
+  getSprintLogs,
+  createSprintLog as createSprintLogAPI,
+  getVelocityDashboard,
+} from "@/lib/api/speed";
+import { BASE_URL } from "@/lib/api/client";
 
 type RawLog = {
   id: number;
@@ -100,30 +116,57 @@ function getAuthHeaders(): Record<string, string> {
     : { "Content-Type": "application/json" };
 }
 
-async function getAthletes(): Promise<Athlete[]> {
+function parseAthlete(item: unknown): Athlete | null {
+  if (!item || typeof item !== "object") return null;
+  const record = item as Record<string, unknown>;
+  if (typeof record.id !== "number" || typeof record.name !== "string") return null;
+
+  return {
+    id: record.id,
+    name: record.name,
+    sport: typeof record.sport === "string" ? record.sport : record.sport === null ? null : undefined,
+    height_cm:
+      typeof record.height_cm === "number"
+        ? record.height_cm
+        : record.height_cm === null
+          ? null
+          : undefined,
+    body_weight_kg:
+      typeof record.body_weight_kg === "number"
+        ? record.body_weight_kg
+        : record.body_weight_kg === null
+          ? null
+          : undefined,
+    goal: typeof record.goal === "string" ? record.goal : record.goal === null ? null : undefined,
+    notes: typeof record.notes === "string" ? record.notes : record.notes === null ? null : undefined,
+  };
+}
+
+function formatProfileText(value: string | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : "—";
+}
+
+function formatProfileNumber(value: number | null | undefined, unit: string): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${value} ${unit}`;
+}
+
+async function loadAthletes(): Promise<Athlete[]> {
   try {
-    const res = await fetch(`${BASE_URL}/athletes`, {
-      cache: "no-store",
-      headers: getAuthHeaders(),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
+    const data = await getAthletes();
     return Array.isArray(data)
-      ? data.filter(
-          (item): item is Athlete =>
-            item !== null && typeof item === "object" && typeof item.id === "number" && typeof item.name === "string",
-        )
+      ? data.map(parseAthlete).filter((item): item is Athlete => item !== null)
       : [];
   } catch {
     return [];
   }
 }
 
-async function getAllLogs(): Promise<RawLog[]> {
+async function loadAllLogs(): Promise<RawLog[]> {
   try {
-    const res = await fetch(`${BASE_URL}/logs`, { headers: getAuthHeaders() });
-    if (!res.ok) return [];
-    const data = await res.json();
+    const data = await getAllLogs();
     return Array.isArray(data)
       ? data.filter(
           (item): item is RawLog =>
@@ -143,17 +186,12 @@ async function getAllLogs(): Promise<RawLog[]> {
   }
 }
 
-async function getProgress(
+async function loadProgress(
   athleteId: number,
   exerciseId: number,
 ): Promise<ProgressResponse | null> {
   try {
-    const res = await fetch(
-      `${BASE_URL}/athletes/${athleteId}/progress/${exerciseId}`,
-      { headers: getAuthHeaders() },
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
+    const data = await getProgress(athleteId, exerciseId);
     if (!data || typeof data !== "object" || !Array.isArray(data.history)) return null;
     return {
       exercise: typeof data.exercise === "string" ? data.exercise : "",
@@ -179,13 +217,9 @@ async function getProgress(
   }
 }
 
-async function getSummary(logId: number): Promise<LogSummary | null> {
+async function loadSummary(logId: number): Promise<LogSummary | null> {
   try {
-    const res = await fetch(`${BASE_URL}/logs/${logId}/summary`, {
-      headers: getAuthHeaders(),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
+    const data = await getSummary(logId);
     if (
       !data ||
       typeof data !== "object" ||
@@ -214,14 +248,9 @@ async function getSummary(logId: number): Promise<LogSummary | null> {
 }
 
 // [NEW] Sprint tracking API functions
-async function getSprintLogs(athleteId: number): Promise<SprintLog[]> {
+async function loadSprintLogs(athleteId: number): Promise<SprintLog[]> {
   try {
-    const res = await fetch(
-      `${BASE_URL}/athletes/${athleteId}/sprint-logs`,
-      { headers: getAuthHeaders() }
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
+    const data = await getSprintLogs(athleteId);
     return Array.isArray(data)
       ? data.filter(
           (item): item is SprintLog =>
@@ -240,7 +269,7 @@ async function getSprintLogs(athleteId: number): Promise<SprintLog[]> {
   }
 }
 
-async function createSprintLog(
+async function createSprintLogData(
   athleteId: number,
   distance: number,
   timeSeconds: number,
@@ -249,21 +278,7 @@ async function createSprintLog(
 ): Promise<CreateSprintResult> {
   const fallback = "No se pudo guardar el sprint. Intentá de nuevo.";
   try {
-    const res = await fetch(`${BASE_URL}/sprint-logs`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        athlete_id: athleteId,
-        distance,
-        time_seconds: timeSeconds,
-        date,
-        notes,
-      }),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) {
-      return { log: null, error: parseApiError(data, fallback) };
-    }
+    const data = await createSprintLogAPI(athleteId, distance, timeSeconds, date, notes);
     if (!data || typeof data !== "object") {
       return { log: null, error: fallback };
     }
@@ -286,8 +301,8 @@ async function createSprintLog(
       },
       error: null,
     };
-  } catch {
-    return { log: null, error: fallback };
+  } catch (error) {
+    return { log: null, error: parseApiError(error, fallback) };
   }
 }
 
@@ -321,6 +336,7 @@ export default function Home() {
   const [athleteName, setAthleteName] = useState("");
   const [isCreatingAthlete, setIsCreatingAthlete] = useState(false);
   const [createAthleteError, setCreateAthleteError] = useState<string | null>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   const [dateRange, setDateRange] = useState<DateRange>(() =>
     readStoredDateRange(STORAGE_KEYS.dateRange),
@@ -352,7 +368,7 @@ export default function Home() {
 
   // ─── Token init ────────────────────────────────────────────────────────────
   useEffect(() => {
-    setToken(localStorage.getItem("token"));
+    setToken(getToken());
     prefsReadyRef.current = true;
   }, []);
 
@@ -360,7 +376,7 @@ export default function Home() {
   useEffect(() => {
     if (!token) return;
     setIsLoadingAthletes(true);
-    getAthletes()
+    loadAthletes()
       .then(setAthletes)
       .finally(() => setIsLoadingAthletes(false));
   }, [token]);
@@ -429,8 +445,8 @@ export default function Home() {
       }
       setIsLoadingLogs(true);
       const [progress, allLogs] = await Promise.all([
-        getProgress(selectedAthleteId, selectedExerciseId),
-        getAllLogs(),
+        loadProgress(selectedAthleteId, selectedExerciseId),
+        loadAllLogs(),
       ]);
       setIsLoadingLogs(false);
 
@@ -473,17 +489,17 @@ export default function Home() {
 
   // [NEW] Load sprint logs
   useEffect(() => {
-    const loadSprintLogs = async () => {
+    const loadSprintLogsData = async () => {
       if (selectedAthleteId === null) {
         setSprintLogs([]);
         return;
       }
       setIsLoadingSprintLogs(true);
-      const logs = await getSprintLogs(selectedAthleteId);
+      const logs = await loadSprintLogs(selectedAthleteId);
       setIsLoadingSprintLogs(false);
       setSprintLogs(logs.sort((a, b) => b.date.localeCompare(a.date)));
     };
-    loadSprintLogs();
+    loadSprintLogsData();
   }, [selectedAthleteId, sprintReloadToken]);
 
   // Load velocity dashboard for training tables
@@ -493,11 +509,7 @@ export default function Home() {
       return;
     }
     setDashboardLoading(true);
-    fetch(`${BASE_URL}/athletes/${selectedAthleteId}/velocity-dashboard`, {
-      headers: getAuthHeaders(),
-      cache: "no-store",
-    })
-      .then((res) => (res.ok ? res.json() : null))
+    getVelocityDashboard(selectedAthleteId)
       .then((data) => setDashboardData(data))
       .catch(() => setDashboardData(null))
       .finally(() => setDashboardLoading(false));
@@ -628,14 +640,8 @@ export default function Home() {
     setIsLoggingIn(true);
     setLoginError(null);
     try {
-      const res = await fetch(`${BASE_URL}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      localStorage.setItem("token", data.access_token);
+      const data = await login(loginEmail, loginPassword);
+      setTokenStorage(data.access_token);
       setToken(data.access_token);
       setLoginEmail("");
       setLoginPassword("");
@@ -647,7 +653,7 @@ export default function Home() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
+    clearToken();
     setToken(null);
     setAthletes([]);
     setSelectedAthleteId(null);
@@ -672,39 +678,64 @@ export default function Home() {
 
   const handleSelectLog = async (logId: number) => {
     setSelectedLogId(logId);
-    setSummary(await getSummary(logId));
+    setSummary(await loadSummary(logId));
   };
 
   const handleCreateLog = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (selectedAthleteId === null || selectedExerciseId === null) return;
+
+    const weightVal = Number(weight);
+    const repsVal = Number(reps);
+
+    if (!Number.isFinite(weightVal)) {
+      setSaveLogError("Ingresá un peso válido (número mayor a 0).");
+      return;
+    }
+    if (weightVal <= 0) {
+      setSaveLogError("El peso debe ser mayor a 0 kg.");
+      return;
+    }
+    if (!Number.isFinite(repsVal)) {
+      setSaveLogError("Ingresá repeticiones válidas (número entero mayor a 0).");
+      return;
+    }
+    if (!Number.isInteger(repsVal) || repsVal <= 0) {
+      setSaveLogError("Las repeticiones deben ser un número entero mayor a 0.");
+      return;
+    }
+
     setIsSavingLog(true);
     setSaveLogError(null);
     try {
-      const res = await fetch(`${BASE_URL}/logs`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          athlete_id: selectedAthleteId,
-          exercise_id: selectedExerciseId,
-          date,
-          weight: Number(weight),
-          reps: Number(reps),
-        }),
-      });
-      if (!res.ok) throw new Error();
+      await createTrainingLog(
+        selectedAthleteId,
+        selectedExerciseId,
+        date,
+        weightVal,
+        repsVal,
+      );
       setLogsReloadToken((p) => p + 1);
       setDate(getTodayDate());
       setWeight("");
       setReps("");
       weightInputRef.current?.focus();
       pushToast("success", "Registro de fuerza guardado");
-    } catch {
-      setSaveLogError("No se pudo guardar el registro. Intentá de nuevo.");
-      pushToast("error", "Error al guardar el registro");
+    } catch (error) {
+      const msg = parseApiError(
+        error,
+        "No se pudo guardar el registro. Intentá de nuevo.",
+      );
+      setSaveLogError(msg);
+      pushToast("error", msg);
     } finally {
       setIsSavingLog(false);
     }
+  };
+
+  const handleProfileSaved = async () => {
+    setAthletes(await loadAthletes());
+    pushToast("success", "Ficha del atleta actualizada");
   };
 
   const handleCreateAthlete = async (event: FormEvent<HTMLFormElement>) => {
@@ -712,18 +743,26 @@ export default function Home() {
     setIsCreatingAthlete(true);
     setCreateAthleteError(null);
     try {
-      const res = await fetch(`${BASE_URL}/athletes`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ name: athleteName }),
-      });
-      if (!res.ok) throw new Error();
+      const created = await createAthlete(athleteName);
       setAthleteName("");
-      setAthletes(await getAthletes());
+      setAthletes(await loadAthletes());
+      if (
+        created &&
+        typeof created === "object" &&
+        typeof created.id === "number"
+      ) {
+        setSelectedAthleteId(created.id);
+        setSelectedLogId(null);
+        setSummary(null);
+      }
       pushToast("success", "Atleta creado");
-    } catch {
-      setCreateAthleteError("No se pudo crear el atleta. Intentá de nuevo.");
-      pushToast("error", "Error al crear el atleta");
+    } catch (error) {
+      const msg = parseApiError(
+        error,
+        "No se pudo crear el atleta. Intentá de nuevo.",
+      );
+      setCreateAthleteError(msg);
+      pushToast("error", msg);
     } finally {
       setIsCreatingAthlete(false);
     }
@@ -744,7 +783,7 @@ export default function Home() {
     setIsSavingSprint(true);
     setSavingSprintError(null);
     try {
-      const { log, error } = await createSprintLog(
+      const { log, error } = await createSprintLogData(
         selectedAthleteId,
         sprintDistance,
         timeVal,
@@ -903,6 +942,18 @@ export default function Home() {
             <p className="text-red-500 text-sm mb-3">{createAthleteError}</p>
           )}
 
+          {selectedAthleteId !== null && (
+            <div className="mb-4">
+              <button
+                type="button"
+                onClick={() => setIsProfileModalOpen(true)}
+                className="px-4 py-2 text-sm font-medium text-indigo-700 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition"
+              >
+                Editar ficha
+              </button>
+            </div>
+          )}
+
           {/* [NEW] Loading state */}
           {isLoadingAthletes ? (
             <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-8 text-center shadow-sm">
@@ -937,7 +988,54 @@ export default function Home() {
               ))}
             </div>
           )}
+
+          {selectedAthlete && !isLoadingAthletes && safeAthletes.length > 0 && (
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">Ficha del atleta</h3>
+              <dl className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-slate-400 mb-0.5">Nombre</dt>
+                  <dd className="text-sm font-medium text-slate-800">{selectedAthlete.name}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-400 mb-0.5">Deporte</dt>
+                  <dd className="text-sm text-slate-700">{formatProfileText(selectedAthlete.sport)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-400 mb-0.5">Altura</dt>
+                  <dd className="text-sm text-slate-700">
+                    {formatProfileNumber(selectedAthlete.height_cm, "cm")}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-400 mb-0.5">Peso corporal</dt>
+                  <dd className="text-sm text-slate-700">
+                    {formatProfileNumber(selectedAthlete.body_weight_kg, "kg")}
+                  </dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-xs text-slate-400 mb-0.5">Objetivo</dt>
+                  <dd className="text-sm text-slate-700 whitespace-pre-wrap">
+                    {formatProfileText(selectedAthlete.goal)}
+                  </dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-xs text-slate-400 mb-0.5">Observaciones</dt>
+                  <dd className="text-sm text-slate-700 whitespace-pre-wrap">
+                    {formatProfileText(selectedAthlete.notes)}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          )}
         </section>
+
+        <AthleteProfileModal
+          open={isProfileModalOpen}
+          athlete={selectedAthlete}
+          onClose={() => setIsProfileModalOpen(false)}
+          onSaved={handleProfileSaved}
+        />
 
 
         {/* Strength module wrapper */}

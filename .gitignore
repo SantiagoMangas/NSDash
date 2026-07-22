@@ -1,0 +1,12 @@
+# Python / Backend
+backend/.venv/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# SQLite local
+backend/app/database.db
+
+# Environment
+.env
+.env.*

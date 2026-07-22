@@ -17,6 +17,9 @@ export function filterLogsByDateRange<T extends { date: string }>(
 }
 
 export function parseApiError(data: unknown, fallback: string): string {
+  if (data instanceof Error && (data as Error & { detail?: unknown }).detail !== undefined) {
+    return parseApiError({ detail: (data as Error & { detail?: unknown }).detail }, fallback);
+  }
   if (!data || typeof data !== "object") return fallback;
   const detail = (data as { detail?: unknown }).detail;
   if (typeof detail === "string") return detail;

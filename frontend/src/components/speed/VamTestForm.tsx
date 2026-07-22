@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { createVamTest } from "@/lib/api/vam";
 
 type VamTestType = "vam_2000m" | "vam_5min" | "test_30_15_ift" | "yoyo_ri1";
 
@@ -19,8 +20,6 @@ interface VamTestResponse {
   vam_mpm: number;
   vam_ms: number;
 }
-
-const BASE_URL = "http://127.0.0.1:8000";
 
 const TEST_TYPES: Array<{ key: VamTestType; label: string }> = [
   { key: "vam_2000m", label: "Test VAM 2000m" },
@@ -233,32 +232,14 @@ export function VamTestForm({ athleteId, authToken, onSuccess }: Props) {
     setIsSaving(true);
 
     try {
-      const payload: Record<string, unknown> = {
-        athlete_id: athleteId,
-        date: today,
-        test_type: testType,
-        value1: parsedValue1,
-        value2: parsedValue2 !== null ? parsedValue2 : null,
-        notes: notes.trim() || null,
-      };
-
-      const response = await fetch(`${BASE_URL}/vam-tests`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          (errorData as any)?.detail ?? `Error ${response.status}`,
-        );
-      }
-
-      const data: VamTestResponse = await response.json();
+      const data: VamTestResponse = await createVamTest(
+        athleteId,
+        today,
+        testType,
+        parsedValue1,
+        parsedValue2,
+        notes.trim() || null,
+      );
       setCreatedTest(data);
       setSuccess(`✅ Test guardado. VAM: ${data.vam_kmh.toFixed(2)} km/h`);
       setValue1(testType === "vam_5min" ? "5" : testType === "test_30_15_ift" ? "16" : testType === "yoyo_ri1" ? "16" : "2000");

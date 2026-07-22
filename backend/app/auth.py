@@ -12,7 +12,8 @@ from os import getenv
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
-SECRET_KEY = getenv("SECRET_KEY", "your-secret-key-change-in-production")
+_DEV_SECRET_KEY = "dev-only-insecure-secret-do-not-use-in-production"
+SECRET_KEY = getenv("SECRET_KEY") or _DEV_SECRET_KEY
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 

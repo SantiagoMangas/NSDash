@@ -2,7 +2,7 @@ import math
 from datetime import date
 from typing import Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -22,12 +22,93 @@ class UserResponse(BaseModel):
 
 class AthleteCreate(BaseModel):
     name: str
+    sport: Optional[str] = Field(default=None, max_length=100)
+    height_cm: Optional[float] = None
+    body_weight_kg: Optional[float] = None
+    goal: Optional[str] = Field(default=None, max_length=500)
+    notes: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El nombre no puede estar vacío")
+        return stripped
+
+    @field_validator("height_cm")
+    @classmethod
+    def validate_height_cm(cls, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return value
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("La altura debe ser un número mayor a 0")
+        if value < 100 or value > 250:
+            raise ValueError("La altura debe estar entre 100 y 250 cm")
+        return value
+
+    @field_validator("body_weight_kg")
+    @classmethod
+    def validate_body_weight_kg(cls, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return value
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("El peso corporal debe ser un número mayor a 0")
+        if value < 30 or value > 300:
+            raise ValueError("El peso corporal debe estar entre 30 y 300 kg")
+        return value
+
+
+class AthleteUpdate(BaseModel):
+    name: Optional[str] = None
+    sport: Optional[str] = Field(default=None, max_length=100)
+    height_cm: Optional[float] = None
+    body_weight_kg: Optional[float] = None
+    goal: Optional[str] = Field(default=None, max_length=500)
+    notes: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El nombre no puede estar vacío")
+        return stripped
+
+    @field_validator("height_cm")
+    @classmethod
+    def validate_height_cm(cls, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return value
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("La altura debe ser un número mayor a 0")
+        if value < 100 or value > 250:
+            raise ValueError("La altura debe estar entre 100 y 250 cm")
+        return value
+
+    @field_validator("body_weight_kg")
+    @classmethod
+    def validate_body_weight_kg(cls, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return value
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("El peso corporal debe ser un número mayor a 0")
+        if value < 30 or value > 300:
+            raise ValueError("El peso corporal debe estar entre 30 y 300 kg")
+        return value
 
 
 class AthleteResponse(BaseModel):
     id: int
     name: str
     coach_id: int
+    sport: Optional[str] = None
+    height_cm: Optional[float] = None
+    body_weight_kg: Optional[float] = None
+    goal: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class ExerciseResponse(BaseModel):

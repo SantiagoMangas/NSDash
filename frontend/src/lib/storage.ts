@@ -104,3 +104,18 @@ export function persistSprintDistance(distance: number | null): void {
   if (distance === null) safeRemove(STORAGE_KEYS.sprintDistance);
   else safeSet(STORAGE_KEYS.sprintDistance, String(distance));
 }
+// ─── Auth Token ────────────────────────────────────────────────────────────
+
+const TOKEN_KEY = `${PREFIX}token`;
+
+export function getToken(): string | null {
+  return safeGet(TOKEN_KEY);
+}
+
+export function setToken(token: string): void {
+  safeSet(TOKEN_KEY, token);
+}
+
+export function clearToken(): void {
+  safeRemove(TOKEN_KEY);
+}

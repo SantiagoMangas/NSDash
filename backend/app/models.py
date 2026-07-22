@@ -1,6 +1,6 @@
 from .db import Base
 
-from sqlalchemy import Boolean, Column, Date, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Date, Float, ForeignKey, Integer, String, Text
 
 
 class User(Base):
@@ -18,6 +18,11 @@ class Athlete(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     coach_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    sport = Column(String(100), nullable=True)
+    height_cm = Column(Float, nullable=True)
+    body_weight_kg = Column(Float, nullable=True)
+    goal = Column(String(500), nullable=True)
+    notes = Column(Text, nullable=True)
 
 
 class Exercise(Base):

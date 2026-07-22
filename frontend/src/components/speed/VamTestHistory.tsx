@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import ZonesTable from "@/components/speed/ZonesTable";
+import { getVamTest, getVamTests } from "@/lib/api/vam";
 import type { VelocityZone } from "@/lib/types";
 
 const TEST_LABELS: Record<string, string> = {
@@ -38,15 +39,6 @@ type VamTestDetail = VamTestHistoryItem & {
   notas?: string | null;
   zonas: VamZoneDetail[];
 };
-
-const BASE_URL = "http://127.0.0.1:8000";
-
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  return token
-    ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
-    : { "Content-Type": "application/json" };
-}
 
 function formatSecondsToPace(seconds: number) {
   if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
@@ -97,14 +89,7 @@ export function VamTestHistory({ athleteId, refreshKey }: { athleteId: number | 
       setError(null);
       setSelectedTest(null);
       try {
-        const res = await fetch(`${BASE_URL}/athletes/${athleteId}/vam-tests`, {
-          headers: getAuthHeaders(),
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          throw new Error("No se pudo cargar el historial de tests VAM.");
-        }
-        const data = (await res.json()) as VamTestHistoryItem[];
+        const data = (await getVamTests(athleteId)) as VamTestHistoryItem[];
         setTests(data.sort((a, b) => b.date.localeCompare(a.date)));
       } catch (err) {
         setError("No se pudo cargar el historial de tests VAM.");
@@ -125,14 +110,7 @@ export function VamTestHistory({ athleteId, refreshKey }: { athleteId: number | 
     setSelectedTest(null);
     setDetailLoading(true);
     try {
-      const res = await fetch(`${BASE_URL}/vam-tests/${testId}`, {
-        headers: getAuthHeaders(),
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        throw new Error("No se pudieron cargar las zonas del test.");
-      }
-      const data = (await res.json()) as VamTestDetail;
+      const data = (await getVamTest(testId)) as VamTestDetail;
       setSelectedTest(data);
     } catch {
       setError("No se pudieron cargar las zonas del test.");

@@ -9,8 +9,9 @@ import SprintReferenceTable from "@/components/speed/SprintReferenceTable";
 import UnitConverter from "@/components/speed/UnitConverter";
 import ZonesTable from "@/components/speed/ZonesTable";
 import type { Athlete, VelocityDashboard } from "@/lib/types";
-
-const BASE_URL = "http://127.0.0.1:8000";
+import { getAthletes } from "@/lib/api/athletes";
+import { getVelocityDashboard } from "@/lib/api/speed";
+import { BASE_URL } from "@/lib/api/client";
 
 const TEST_LABELS: Record<string, string> = {
   vam_2000m: "Test VAM 2000m",
@@ -34,14 +35,9 @@ export default function VelocityPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadAthletes() {
+    async function loadAthletesData() {
       try {
-        const res = await fetch(`${BASE_URL}/athletes`, { headers: getAuthHeaders(), cache: "no-store" });
-        if (!res.ok) {
-          setAthletes([]);
-          return;
-        }
-        const data = await res.json();
+        const data = await getAthletes();
         if (Array.isArray(data)) {
           const parsed = data.filter(
             (item): item is Athlete => item && typeof item === "object" && typeof item.id === "number" && typeof item.name === "string",
@@ -53,7 +49,7 @@ export default function VelocityPage() {
         setAthletes([]);
       }
     }
-    loadAthletes();
+    loadAthletesData();
   }, []);
 
   useEffect(() => {
@@ -65,23 +61,18 @@ export default function VelocityPage() {
     async function loadDashboard() {
       setLoading(true);
       setError(null);
+      if (selectedAthleteId === null) {
+        setLoading(false);
+        return;
+      }
       try {
-        const res = await fetch(`${BASE_URL}/athletes/${selectedAthleteId}/velocity-dashboard`, {
-          headers: getAuthHeaders(),
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          if (res.status === 404) {
-            setDashboard(null);
-            setError("Este atleta aún no tiene tests de velocidad registrados.");
-          } else {
-            setError("No se pudo cargar el dashboard de velocidad.");
-          }
+        const data = await getVelocityDashboard(selectedAthleteId);
+        if (!data) {
+          setDashboard(null);
+          setError("Este atleta aún no tiene tests de velocidad registrados.");
           setLoading(false);
           return;
         }
-
-        const data = await res.json();
         setDashboard(data as VelocityDashboard);
       } catch {
         setError("No se pudo conectar con el servidor.");
