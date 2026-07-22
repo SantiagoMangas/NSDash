@@ -23,7 +23,7 @@ try:
         # Create new user
         new_user = User(
             email="admin@ns.com",
-            password_hash=hash_password("admin123"),
+            password_hash=hash_password("1234"),
             is_admin=True,
         )
         db.add(new_user)

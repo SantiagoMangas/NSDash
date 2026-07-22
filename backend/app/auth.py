@@ -4,12 +4,11 @@ from typing import Any
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy.orm import Session
 
 from os import getenv
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 _DEV_SECRET_KEY = "dev-only-insecure-secret-do-not-use-in-production"
@@ -20,12 +19,12 @@ ACCESS_TOKEN_EXPIRE_HOURS = 24
 
 def hash_password(password: str) -> str:
     """Hash a plain text password using bcrypt."""
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Verify a plain text password against its hash."""
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
 def create_access_token(data: dict[str, Any]) -> str:

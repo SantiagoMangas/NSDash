@@ -83,11 +83,24 @@ def build_percentage_table(estimated_rm: float) -> list[dict[str, float | int]]:
     return table
 
 
+DEFAULT_ADMIN_EMAIL = "admin@ns.com"
+DEFAULT_ADMIN_PASSWORD = "1234"
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
     migrate_athlete_profile_columns()
     with SessionLocal() as db:
+        if db.query(models.User).count() == 0:
+            db.add(
+                models.User(
+                    email=DEFAULT_ADMIN_EMAIL,
+                    password_hash=auth.hash_password(DEFAULT_ADMIN_PASSWORD),
+                    is_admin=True,
+                )
+            )
+            db.commit()
         existing_names = {exercise.name for exercise in db.query(models.Exercise).all()}
         missing_names = [name for name in STRENGTH_EXERCISES if name not in existing_names]
         if missing_names:
