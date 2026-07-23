@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from .auth import hash_password
-from .models import Athlete, Exercise, TrainingLog, User
+from .models import Athlete, TrainingLog, User
 
 ADMIN_EMAIL = "admin@ns.com"
 ADMIN_PASSWORD = "1234"

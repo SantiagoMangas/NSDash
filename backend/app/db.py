@@ -22,54 +22,39 @@ def is_cloud_runtime() -> bool:
     return any(os.getenv(name) for name in CLOUD_ENV_MARKERS)
 
 
-def resolve_database_url() -> tuple[str, dict]:
-    database_url = os.getenv("DATABASE_URL", "").strip()
-    if database_url:
-        if database_url.startswith("postgres://"):
-            database_url = database_url.replace("postgres://", "postgresql://", 1)
-        return database_url, {}
-
+def resolve_sqlite_path() -> str:
     db_path = os.getenv("DATABASE_PATH", DEFAULT_DB_PATH).strip() or DEFAULT_DB_PATH
-    db_dir = os.path.dirname(os.path.abspath(db_path))
-    if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
-    sqlite_url = f"sqlite:///{db_path.replace(os.sep, '/')}"
-    return sqlite_url, {"check_same_thread": False}
+    return os.path.abspath(db_path)
 
 
 def get_db_backend_name() -> str:
-    if os.getenv("DATABASE_URL", "").strip():
-        return "postgresql"
     return "sqlite"
 
 
 def get_sqlite_path() -> str:
-    return os.path.abspath(os.getenv("DATABASE_PATH", DEFAULT_DB_PATH))
+    return resolve_sqlite_path()
 
 
-SQLALCHEMY_DATABASE_URL, _connect_args = resolve_database_url()
+DB_PATH = resolve_sqlite_path()
+db_dir = os.path.dirname(DB_PATH)
+if db_dir:
+    os.makedirs(db_dir, exist_ok=True)
 
-_engine_kwargs: dict = {"connect_args": _connect_args}
-if get_db_backend_name() == "postgresql":
-    _engine_kwargs["pool_pre_ping"] = True
-
-engine = create_engine(SQLALCHEMY_DATABASE_URL, **_engine_kwargs)
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH.replace(os.sep, '/')}"
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
 def log_db_startup_info() -> None:
-    backend = get_db_backend_name()
-    if backend == "postgresql":
-        logger.info("Database: PostgreSQL (persistent via DATABASE_URL)")
-        return
-
-    db_path = get_sqlite_path()
-    logger.info("Database: SQLite at %s", db_path)
+    logger.info("Database: SQLite at %s", DB_PATH)
     if is_cloud_runtime() and not os.getenv("DATABASE_PATH", "").strip():
         logger.warning(
             "SQLite sin volumen persistente en cloud: los datos se pierden en cada deploy. "
-            "Configurá DATABASE_URL (PostgreSQL) o DATABASE_PATH en un disco persistente."
+            "Configurá DATABASE_PATH apuntando al Volume (ej. /data/database.db)."
         )
 
 

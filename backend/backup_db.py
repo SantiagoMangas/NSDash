@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
 """Copia la base SQLite local a backend/backups/ antes de un deploy."""
 
-import os
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from app.db import DEFAULT_DB_PATH, get_db_backend_name, get_sqlite_path
+from app.db import get_sqlite_path
 
 
 def backup() -> int:
-    if get_db_backend_name() != "sqlite":
-        print("Este script solo aplica a SQLite local.")
-        print("En producción con PostgreSQL usá pg_dump o el backup del proveedor.")
-        return 1
-
     source = Path(get_sqlite_path())
     if not source.exists():
         print(f"No existe la base de datos en {source}")

@@ -8,7 +8,6 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from . import auth, models, schemas, vam_calculator
-from .demo_seed import has_demo_data, seed_demo_data
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
 
 DEFAULT_ALLOWED_ORIGINS = [
@@ -121,8 +120,6 @@ def on_startup() -> None:
                 else:
                     db.add(models.Exercise(name=name))
             db.commit()
-        if not has_demo_data(db):
-            seed_demo_data(db)
 
 
 @app.get("/")

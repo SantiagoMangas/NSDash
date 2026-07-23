@@ -1,9 +1,5 @@
-# Blueprint de ejemplo para Render con base persistente.
+# Blueprint de ejemplo para Render con SQLite en disco persistente.
 # Docs: https://render.com/docs/blueprint-spec
-#
-# 1. Crear PostgreSQL en Render (o usar Neon/Supabase y pegar DATABASE_URL).
-# 2. Conectar este repo y aplicar el blueprint, o crear el Web Service manualmente.
-# 3. En el Web Service, setear DATABASE_URL desde la base Postgres.
 
 services:
   - type: web
@@ -13,13 +9,11 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: nsdash-db
-          property: connectionString
+      - key: DATABASE_PATH
+        value: /data/database.db
       - key: ALLOWED_ORIGINS
         value: https://ns-dash.vercel.app,http://localhost:3000
-
-databases:
-  - name: nsdash-db
-    plan: free
+    disk:
+      name: nsdash-data
+      mountPath: /data
+      sizeGB: 1
