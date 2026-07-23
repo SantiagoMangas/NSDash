@@ -8,7 +8,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from . import auth, models, schemas, vam_calculator
-from .db import Base, SessionLocal, engine, get_db
+from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
 
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -90,6 +90,7 @@ DEFAULT_ADMIN_PASSWORD = "1234"
 
 @app.on_event("startup")
 def on_startup() -> None:
+    log_db_startup_info()
     Base.metadata.create_all(bind=engine)
     migrate_athlete_profile_columns()
     with SessionLocal() as db:
@@ -129,7 +130,7 @@ def read_root() -> dict[str, str]:
 @app.get("/health")
 def health_check() -> dict[str, str]:
     """Simple health check endpoint to verify CORS is working."""
-    return {"status": "ok"}
+    return {"status": "ok", "database": get_db_backend_name()}
 
 
 @app.get("/test-auth")

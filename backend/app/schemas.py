@@ -1,5 +1,5 @@
 import math
-from datetime import date
+from datetime import date as Date
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -119,13 +119,13 @@ class ExerciseResponse(BaseModel):
 class TrainingLogCreate(BaseModel):
     athlete_id: int
     exercise_id: int
-    date: date
+    date: Date
     weight: float
     reps: int
 
 
 class TrainingLogUpdate(BaseModel):
-    date: Optional[date] = None
+    date: Optional[Date] = None
     weight: Optional[float] = None
     reps: Optional[int] = None
 
@@ -152,7 +152,7 @@ class TrainingLogResponse(BaseModel):
     id: int
     athlete_id: int
     exercise_id: int
-    date: date
+    date: Date
     weight: float
     reps: int
     estimated_rm: Optional[float]
@@ -162,7 +162,7 @@ class SprintLogCreate(BaseModel):
     athlete_id: int
     distance: float
     time_seconds: float
-    date: date
+    date: Date
     notes: Optional[str] = None
 
     @field_validator("distance", "time_seconds")
@@ -180,7 +180,7 @@ class SprintLogResponse(BaseModel):
     athlete_id: int
     distance: float
     time_seconds: float
-    date: date
+    date: Date
     notes: Optional[str]
     average_speed: float
 
@@ -190,7 +190,7 @@ class SprintLogDetail(BaseModel):
     athlete_id: int
     distance: float
     time_seconds: float
-    date: date
+    date: Date
     notes: Optional[str]
     average_speed: float
     pr_time: Optional[float]
@@ -202,7 +202,7 @@ class SprintLogDetail(BaseModel):
 
 class VamTestInput(BaseModel):
     athlete_id: int
-    date: date
+    date: Date
     test_type: str  # "vam_2000m" | "vam_5min" | "test_30_15_ift" | "yoyo_ri1"
     value1: float   # distancia o velocidad según test_type
     value2: Optional[float] = None  # tiempo o nivel según test_type
@@ -252,7 +252,7 @@ class SprintTimeResponse(BaseModel):
 class VamTestResponse(BaseModel):
     id: int
     athlete_id: int
-    date: date
+    date: Date
     test_type: str
     vam_mpm: float
     vam_kmh: float
@@ -265,20 +265,20 @@ class VamTestResponse(BaseModel):
 class VamTestSummary(BaseModel):
     id: int
     athlete_id: int
-    date: date
+    date: Date
     test_type: str
     vam_kmh: float
 
 
 class VamTestSummaryItem(BaseModel):
     test_type: str
-    date: date
+    date: Date
     vam_kmh: float
 
 
 class BestVamTest(BaseModel):
     test_type: str
-    date: date
+    date: Date
     vam_kmh: float
     vam_mpm: float
     vam_ms: float

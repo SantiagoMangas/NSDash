@@ -6,6 +6,8 @@ backend/.venv/
 
 # SQLite local
 backend/app/database.db
+backend/backups/
+backend/data/
 
 # Environment
 .env
