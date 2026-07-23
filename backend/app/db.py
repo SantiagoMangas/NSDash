@@ -48,7 +48,12 @@ def get_sqlite_path() -> str:
 
 
 SQLALCHEMY_DATABASE_URL, _connect_args = resolve_database_url()
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args=_connect_args)
+
+_engine_kwargs: dict = {"connect_args": _connect_args}
+if get_db_backend_name() == "postgresql":
+    _engine_kwargs["pool_pre_ping"] = True
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL, **_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
