@@ -215,6 +215,39 @@ def update_athlete(
     return db_athlete
 
 
+@app.delete("/athletes/{athlete_id}")
+def delete_athlete(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict[str, str]:
+    db_athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    if db_athlete is None:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+    if db_athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    db.query(models.TrainingLog).filter(models.TrainingLog.athlete_id == athlete_id).delete()
+    db.query(models.SprintLog).filter(models.SprintLog.athlete_id == athlete_id).delete()
+    db.query(models.VamTest).filter(models.VamTest.athlete_id == athlete_id).delete()
+    db.delete(db_athlete)
+    db.commit()
+    return {"detail": "Athlete deleted"}
+
+
+def get_owned_training_log(
+    log_id: int, db: Session, current_user: int
+) -> models.TrainingLog:
+    log = db.query(models.TrainingLog).filter(models.TrainingLog.id == log_id).first()
+    if log is None:
+        raise HTTPException(status_code=404, detail="TrainingLog not found")
+
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == log.athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return log
+
+
 @app.post("/exercises")
 def create_exercise() -> None:
     raise HTTPException(
@@ -256,6 +289,42 @@ def list_logs(db: Session = Depends(get_db), current_user: int = Depends(auth.ge
     return db.query(models.TrainingLog).join(
         models.Athlete
     ).filter(models.Athlete.coach_id == current_user).all()
+
+
+@app.patch("/logs/{log_id}", response_model=schemas.TrainingLogResponse)
+def update_log(
+    log_id: int,
+    log_update: schemas.TrainingLogUpdate,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> models.TrainingLog:
+    db_log = get_owned_training_log(log_id, db, current_user)
+
+    update_data = log_update.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    for field, value in update_data.items():
+        setattr(db_log, field, value)
+
+    if "weight" in update_data or "reps" in update_data:
+        db_log.estimated_rm = float(db_log.weight * (1 + db_log.reps / 30))
+
+    db.commit()
+    db.refresh(db_log)
+    return db_log
+
+
+@app.delete("/logs/{log_id}")
+def delete_log(
+    log_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict[str, str]:
+    db_log = get_owned_training_log(log_id, db, current_user)
+    db.delete(db_log)
+    db.commit()
+    return {"detail": "TrainingLog deleted"}
 
 
 @app.get("/logs/{log_id}/percentages")

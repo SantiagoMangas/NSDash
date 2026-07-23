@@ -1,4 +1,4 @@
-import { get, post } from "@/lib/api/client";
+import { del, get, patch, post } from "@/lib/api/client";
 
 export async function getAllLogs(): Promise<any> {
   return get("/logs");
@@ -26,4 +26,21 @@ export async function createTrainingLog(
     weight,
     reps,
   });
+}
+
+export type TrainingLogUpdatePayload = {
+  date?: string;
+  weight?: number;
+  reps?: number;
+};
+
+export async function updateTrainingLog(
+  logId: number,
+  payload: TrainingLogUpdatePayload,
+): Promise<any> {
+  return patch(`/logs/${logId}`, payload);
+}
+
+export async function deleteTrainingLog(logId: number): Promise<any> {
+  return del(`/logs/${logId}`);
 }

@@ -12,6 +12,7 @@ import {
 } from "recharts";
 
 import { ChartTooltip } from "@/components/strength/ChartTooltip";
+import { StrengthLogEditModal, type StrengthLogEditData } from "@/components/strength/StrengthLogEditModal";
 import { AthleteProfileModal } from "@/components/athletes/AthleteProfileModal";
 import { VamTestForm } from "@/components/speed/VamTestForm";
 import { VamTestHistory } from "@/components/speed/VamTestHistory";
@@ -54,12 +55,13 @@ import type {
   SprintLog,
 } from "@/lib/types";
 import { login } from "@/lib/api/auth";
-import { getAthletes, createAthlete } from "@/lib/api/athletes";
+import { getAthletes, createAthlete, deleteAthlete } from "@/lib/api/athletes";
 import {
   getAllLogs,
   getProgress,
   getSummary,
   createTrainingLog,
+  deleteTrainingLog,
 } from "@/lib/api/strength";
 import {
   getSprintLogs,
@@ -337,6 +339,10 @@ export default function Home() {
   const [isCreatingAthlete, setIsCreatingAthlete] = useState(false);
   const [createAthleteError, setCreateAthleteError] = useState<string | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isDeletingAthlete, setIsDeletingAthlete] = useState(false);
+  const [editingLog, setEditingLog] = useState<StrengthLogEditData | null>(null);
+  const [isLogEditModalOpen, setIsLogEditModalOpen] = useState(false);
+  const [deletingLogId, setDeletingLogId] = useState<number | null>(null);
 
   const [dateRange, setDateRange] = useState<DateRange>(() =>
     readStoredDateRange(STORAGE_KEYS.dateRange),
@@ -740,6 +746,89 @@ export default function Home() {
     pushToast("success", "Ficha del atleta actualizada");
   };
 
+  const handleDeleteAthlete = async () => {
+    if (selectedAthleteId === null || isDeletingAthlete) return;
+
+    const athleteName = selectedAthlete?.name ?? "este atleta";
+    if (
+      !window.confirm(
+        `¿Eliminar a ${athleteName}? Se borrarán también sus registros de fuerza, velocidad y VAM.`,
+      )
+    ) {
+      return;
+    }
+
+    setIsDeletingAthlete(true);
+    try {
+      await deleteAthlete(selectedAthleteId);
+      setAthletes(await loadAthletes());
+      setSelectedAthleteId(null);
+      setSelectedLogId(null);
+      setSummary(null);
+      setIsProfileModalOpen(false);
+      setIsLogEditModalOpen(false);
+      setEditingLog(null);
+      pushToast("success", "Atleta eliminado");
+    } catch (error) {
+      const msg = parseApiError(
+        error,
+        "No se pudo eliminar el atleta. Intentá de nuevo.",
+      );
+      pushToast("error", msg);
+    } finally {
+      setIsDeletingAthlete(false);
+    }
+  };
+
+  const handleOpenEditLog = (log: ProgressListItem) => {
+    setEditingLog({
+      id: log.id,
+      date: log.date,
+      weight: log.weight,
+      reps: log.reps,
+    });
+    setIsLogEditModalOpen(true);
+  };
+
+  const handleLogSaved = async () => {
+    const editedLogId = editingLog?.id ?? null;
+    setLogsReloadToken((p) => p + 1);
+    if (editedLogId !== null && selectedLogId === editedLogId) {
+      setSummary(await loadSummary(editedLogId));
+    }
+    pushToast("success", "Registro de fuerza actualizado");
+  };
+
+  const handleDeleteLog = async (logId: number) => {
+    if (deletingLogId !== null) return;
+    if (
+      !window.confirm(
+        "¿Eliminar este registro de fuerza? Esta acción no se puede deshacer.",
+      )
+    ) {
+      return;
+    }
+
+    setDeletingLogId(logId);
+    try {
+      await deleteTrainingLog(logId);
+      if (selectedLogId === logId) {
+        setSelectedLogId(null);
+        setSummary(null);
+      }
+      setLogsReloadToken((p) => p + 1);
+      pushToast("success", "Registro de fuerza eliminado");
+    } catch (error) {
+      const msg = parseApiError(
+        error,
+        "No se pudo eliminar el registro. Intentá de nuevo.",
+      );
+      pushToast("error", msg);
+    } finally {
+      setDeletingLogId(null);
+    }
+  };
+
   const handleCreateAthlete = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsCreatingAthlete(true);
@@ -945,13 +1034,21 @@ export default function Home() {
           )}
 
           {selectedAthleteId !== null && (
-            <div className="mb-4">
+            <div className="mb-4 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setIsProfileModalOpen(true)}
                 className="px-4 py-2 text-sm font-medium text-indigo-700 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition"
               >
                 Editar ficha
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAthlete}
+                disabled={isDeletingAthlete}
+                className="px-4 py-2 text-sm font-medium text-red-700 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 transition disabled:opacity-50"
+              >
+                {isDeletingAthlete ? "Eliminando..." : "Eliminar atleta"}
               </button>
             </div>
           )}
@@ -1037,6 +1134,16 @@ export default function Home() {
           athlete={selectedAthlete}
           onClose={() => setIsProfileModalOpen(false)}
           onSaved={handleProfileSaved}
+        />
+
+        <StrengthLogEditModal
+          open={isLogEditModalOpen}
+          log={editingLog}
+          onClose={() => {
+            setIsLogEditModalOpen(false);
+            setEditingLog(null);
+          }}
+          onSaved={handleLogSaved}
         />
 
 
@@ -1334,12 +1441,11 @@ export default function Home() {
                   ) : (
                     <ul className="divide-y divide-slate-100">
                       {filteredLogs.map((log) => (
-                        <li key={log.id}>
-                          {/* [NEW] Inline row layout with hover and selected state */}
+                        <li key={log.id} className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => handleSelectLog(log.id)}
-                            className={`w-full flex items-center justify-between px-3 py-3 rounded-lg text-left transition-all hover:bg-slate-50 active:scale-[0.99] ${
+                            className={`flex-1 flex items-center justify-between px-3 py-3 rounded-lg text-left transition-all hover:bg-slate-50 active:scale-[0.99] ${
                               selectedLogId === log.id ? "bg-indigo-50" : ""
                             }`}
                           >
@@ -1353,6 +1459,23 @@ export default function Home() {
                               {log.estimated_rm} kg RM
                             </span>
                           </button>
+                          <div className="flex shrink-0 gap-1 pr-2">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditLog(log)}
+                              className="px-2.5 py-1.5 text-xs font-medium text-indigo-700 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteLog(log.id)}
+                              disabled={deletingLogId === log.id}
+                              className="px-2.5 py-1.5 text-xs font-medium text-red-700 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 transition disabled:opacity-50"
+                            >
+                              {deletingLogId === log.id ? "..." : "Eliminar"}
+                            </button>
+                          </div>
                         </li>
                       ))}
                     </ul>

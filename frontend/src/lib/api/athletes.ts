@@ -1,4 +1,4 @@
-import { get, patch, post } from "@/lib/api/client";
+import { del, get, patch, post } from "@/lib/api/client";
 
 export type AthleteUpdatePayload = {
   name?: string;
@@ -22,4 +22,8 @@ export async function updateAthlete(
   payload: AthleteUpdatePayload,
 ): Promise<any> {
   return patch(`/athletes/${athleteId}`, payload);
+}
+
+export async function deleteAthlete(athleteId: number): Promise<any> {
+  return del(`/athletes/${athleteId}`);
 }

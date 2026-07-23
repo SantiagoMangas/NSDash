@@ -124,6 +124,30 @@ class TrainingLogCreate(BaseModel):
     reps: int
 
 
+class TrainingLogUpdate(BaseModel):
+    date: Optional[date] = None
+    weight: Optional[float] = None
+    reps: Optional[int] = None
+
+    @field_validator("weight")
+    @classmethod
+    def validate_weight(cls, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return value
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("El peso debe ser un número mayor a 0")
+        return value
+
+    @field_validator("reps")
+    @classmethod
+    def validate_reps(cls, value: Optional[int]) -> Optional[int]:
+        if value is None:
+            return value
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError("Las repeticiones deben ser un número entero mayor a 0")
+        return value
+
+
 class TrainingLogResponse(BaseModel):
     id: int
     athlete_id: int

@@ -94,4 +94,14 @@ export async function patch<T>(
   });
 }
 
+export async function del<T>(
+  endpoint: string,
+  options?: Omit<RequestOptions, "method" | "body">,
+): Promise<T> {
+  return request<T>(endpoint, {
+    ...options,
+    method: "DELETE",
+  });
+}
+
 export { BASE_URL };
