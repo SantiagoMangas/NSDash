@@ -9,6 +9,7 @@ import SprintReferenceTable from "@/components/speed/SprintReferenceTable";
 import UnitConverter from "@/components/speed/UnitConverter";
 import ZonesTable from "@/components/speed/ZonesTable";
 import type { Athlete, VelocityDashboard } from "@/lib/types";
+import { formatTestTypeLabel, getBestTestMetricLabel } from "@/lib/resistencia/constants";
 import { getAthletes } from "@/lib/api/athletes";
 import { getVelocityDashboard } from "@/lib/api/speed";
 import { BASE_URL } from "@/lib/api/client";
@@ -118,11 +119,13 @@ export default function VelocityPage() {
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Mejor VAM</p>
+                      <p className="text-sm uppercase tracking-[0.18em] text-slate-500">
+                        {getBestTestMetricLabel(dashboard.best_test.test_type)}
+                      </p>
                       <h2 className="text-3xl font-semibold text-slate-900">{dashboard.best_test.vam_kmh.toFixed(2)} km/h</h2>
                     </div>
                     <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-800">
-                      {dashboard.best_test.test_type.replace("_", " ")}
+                      {formatTestTypeLabel(dashboard.best_test.test_type)}
                     </span>
                   </div>
                   <p className="mt-4 text-sm text-slate-700">
@@ -146,7 +149,10 @@ export default function VelocityPage() {
               </div>
 
               <div className="space-y-4">
-                <UnitConverter key={dashboard.best_test.vam_kmh} initialKmh={dashboard.best_test.vam_kmh} />
+                <UnitConverter
+                  key={dashboard.best_test.vam_kmh}
+                  unitConversions={dashboard.unit_conversions}
+                />
               </div>
             </div>
           ) : null}

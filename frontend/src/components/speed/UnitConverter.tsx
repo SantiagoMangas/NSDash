@@ -1,53 +1,168 @@
 "use client";
 
-import { useState } from "react";
-import { formatMpmDecimal, parseMpmInput } from "@/lib/utils";
-import type { UnitConverterValues } from "@/lib/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { post } from "@/lib/api/client";
+import { parseMpmInput } from "@/lib/utils";
+import type { UnitConverterValues, VelocityDashboard } from "@/lib/types";
 
 type Props = {
   initialKmh?: number;
+  unitConversions?: VelocityDashboard["unit_conversions"];
 };
 
-export default function UnitConverter({ initialKmh = 12 }: Props) {
+type FromUnit = "kmh" | "mpm" | "ms";
+
+type UnitConversionResponse = {
+  kmh: number;
+  mpm: number;
+  mpm_str: string;
+  ms: number;
+};
+
+const DEBOUNCE_MS = 350;
+
+function buildValuesFromUnitConversions(
+  unitConversions: VelocityDashboard["unit_conversions"],
+): UnitConverterValues {
+  const minKmPace = parseMpmInput(unitConversions.vam_mpm_formatted);
+  return {
+    kmh: unitConversions.vam_kmh.toFixed(2),
+    mpm: minKmPace !== null ? minKmPace.toFixed(2) : "",
+    ms: unitConversions.vam_ms.toFixed(2),
+    mpm_str: unitConversions.vam_mpm_formatted,
+  };
+}
+
+function emptyDerivedValues(): Pick<UnitConverterValues, "mpm" | "ms" | "mpm_str"> {
+  return { mpm: "", ms: "", mpm_str: "0:00" };
+}
+
+function applyConversionResponse(
+  response: UnitConversionResponse,
+  fromUnit: FromUnit,
+  rawInput: string,
+): UnitConverterValues {
+  return {
+    kmh: fromUnit === "kmh" ? rawInput : response.kmh.toFixed(2),
+    mpm: fromUnit === "mpm" ? rawInput : response.mpm.toFixed(2),
+    ms: fromUnit === "ms" ? rawInput : response.ms.toFixed(2),
+    mpm_str: response.mpm_str,
+  };
+}
+
+export default function UnitConverter({ initialKmh = 12, unitConversions }: Props) {
   const [values, setValues] = useState<UnitConverterValues>(() => {
-    const mpm = 60 / initialKmh;
+    if (unitConversions) {
+      return buildValuesFromUnitConversions(unitConversions);
+    }
     return {
       kmh: initialKmh.toFixed(2),
-      mpm: mpm.toFixed(2),
-      ms: (initialKmh / 3.6).toFixed(2),
-      mpm_str: formatMpmDecimal(mpm),
+      mpm: "",
+      ms: "",
+      mpm_str: "…",
     };
   });
+  const [loading, setLoading] = useState(!unitConversions);
+  const [error, setError] = useState<string | null>(null);
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestIdRef = useRef(0);
+  const lastValidRef = useRef<UnitConverterValues | null>(
+    unitConversions ? buildValuesFromUnitConversions(unitConversions) : null,
+  );
+
+  const convertUnits = useCallback(async (fromUnit: FromUnit, numeric: number, rawInput: string) => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await post<UnitConversionResponse>("/convert-units", {
+        value: numeric,
+        from_unit: fromUnit,
+      });
+
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      const nextValues = applyConversionResponse(response, fromUnit, rawInput);
+      setValues(nextValues);
+      lastValidRef.current = nextValues;
+    } catch {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+      setError("No se pudo convertir. Se mantiene el último valor válido.");
+      if (lastValidRef.current) {
+        setValues(lastValidRef.current);
+      }
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  const scheduleConvert = useCallback(
+    (fromUnit: FromUnit, rawInput: string, numeric: number | null) => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+
+      const fieldKey = fromUnit;
+      setError(null);
+
+      if (numeric === null) {
+        requestIdRef.current += 1;
+        setLoading(false);
+        setValues((prev) => ({
+          ...prev,
+          [fieldKey]: rawInput,
+          ...emptyDerivedValues(),
+        }));
+        return;
+      }
+
+      setValues((prev) => ({ ...prev, [fieldKey]: rawInput }));
+
+      debounceRef.current = setTimeout(() => {
+        void convertUnits(fromUnit, numeric, rawInput);
+      }, DEBOUNCE_MS);
+    },
+    [convertUnits],
+  );
+
+  useEffect(() => {
+    if (unitConversions) {
+      return;
+    }
+
+    void convertUnits("kmh", initialKmh, initialKmh.toFixed(2));
+  }, [convertUnits, initialKmh, unitConversions]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
 
   function updateFromKmh(raw: string) {
     const numeric = Number(raw.replace(",", "."));
-    if (!Number.isFinite(numeric) || numeric <= 0) {
-      setValues({ kmh: raw, mpm: "", ms: "", mpm_str: "0:00" });
-      return;
-    }
-    const mpm = 60 / numeric;
-    setValues({ kmh: raw, mpm: mpm.toFixed(2), ms: (numeric / 3.6).toFixed(2), mpm_str: formatMpmDecimal(mpm) });
+    const parsed = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+    scheduleConvert("kmh", raw, parsed);
   }
 
   function updateFromMpm(raw: string) {
-    const numeric = parseMpmInput(raw);
-    if (numeric === null) {
-      setValues({ kmh: "", mpm: raw, ms: "", mpm_str: raw });
-      return;
-    }
-    const kmh = 60 / numeric;
-    setValues({ kmh: kmh.toFixed(2), mpm: numeric.toFixed(2), ms: (kmh / 3.6).toFixed(2), mpm_str: formatMpmDecimal(numeric) });
+    scheduleConvert("mpm", raw, parseMpmInput(raw));
   }
 
   function updateFromMs(raw: string) {
     const numeric = Number(raw.replace(",", "."));
-    if (!Number.isFinite(numeric) || numeric <= 0) {
-      setValues({ kmh: "", mpm: "", ms: raw, mpm_str: "0:00" });
-      return;
-    }
-    const kmh = numeric * 3.6;
-    const mpm = 60 / kmh;
-    setValues({ kmh: kmh.toFixed(2), mpm: mpm.toFixed(2), ms: raw, mpm_str: formatMpmDecimal(mpm) });
+    const parsed = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+    scheduleConvert("ms", raw, parsed);
   }
 
   return (
@@ -86,8 +201,19 @@ export default function UnitConverter({ initialKmh = 12 }: Props) {
         </label>
       </div>
       <div className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-700">
-        Ritmo: <span className="font-semibold text-slate-900">{values.mpm_str}</span>
+        Ritmo:{" "}
+        <span className="font-semibold text-slate-900">
+          {loading ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" />
+              {values.mpm_str || "…"}
+            </span>
+          ) : (
+            values.mpm_str
+          )}
+        </span>
       </div>
+      {error ? <p className="mt-2 text-sm text-amber-700">{error}</p> : null}
     </div>
   );
 }

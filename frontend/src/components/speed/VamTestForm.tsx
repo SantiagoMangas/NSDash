@@ -8,6 +8,8 @@ type VamTestType = "vam_2000m" | "vam_5min" | "test_30_15_ift" | "yoyo_ri1";
 interface Props {
   athleteId: number | null;
   authToken: string | null;
+  fixedTestType?: VamTestType;
+  embedded?: boolean;
   onSuccess?: () => void;
 }
 
@@ -19,6 +21,7 @@ interface VamTestResponse {
   vam_kmh: number;
   vam_mpm: number;
   vam_ms: number;
+  ritmo_str: string;
 }
 
 const TEST_TYPES: Array<{ key: VamTestType; label: string }> = [
@@ -67,15 +70,6 @@ function buildFieldLabels(testType: VamTestType) {
   }
 }
 
-function formatSecondsToPace(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    return "0:00";
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remaining = Math.round(seconds - minutes * 60);
-  return `${minutes}:${remaining.toString().padStart(2, "0")}`;
-}
-
 function calculatePreview(testType: VamTestType, value1: number, value2: number | null) {
   if (value1 <= 0 || (testType !== "test_30_15_ift" && value2 !== null && value2 <= 0)) {
     return null;
@@ -104,12 +98,11 @@ function calculatePreview(testType: VamTestType, value1: number, value2: number 
     return null;
   }
 
-  const ritmo = formatSecondsToPace(3600 / vamKmh);
-  return { vamPreview: vamKmh.toFixed(2), ritmoPreview: ritmo };
+  return { vamPreview: vamKmh.toFixed(2) };
 }
 
-export function VamTestForm({ athleteId, authToken, onSuccess }: Props) {
-  const [testType, setTestType] = useState<VamTestType>("vam_2000m");
+export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = false, onSuccess }: Props) {
+  const [testType, setTestType] = useState<VamTestType>(fixedTestType ?? "vam_2000m");
   const [value1, setValue1] = useState<string>("2000");
   const [value2, setValue2] = useState<string>("7");
   const [notes, setNotes] = useState<string>("");
@@ -134,6 +127,7 @@ export function VamTestForm({ athleteId, authToken, onSuccess }: Props) {
     () => calculatePreview(testType, parsedValue1, parsedValue2),
     [testType, parsedValue1, parsedValue2],
   );
+
 
   useEffect(() => {
     return () => {
@@ -182,6 +176,11 @@ export function VamTestForm({ athleteId, authToken, onSuccess }: Props) {
         break;
     }
   };
+
+  useEffect(() => {
+    if (!fixedTestType) return;
+    handleTypeChange(fixedTestType);
+  }, [fixedTestType]);
 
   const extractErrorMessage = (error: any) => {
     if (!error || typeof error !== "object") {
@@ -241,7 +240,7 @@ export function VamTestForm({ athleteId, authToken, onSuccess }: Props) {
         notes.trim() || null,
       );
       setCreatedTest(data);
-      setSuccess(`✅ Test guardado. VAM: ${data.vam_kmh.toFixed(2)} km/h`);
+      setSuccess(`✅ Test guardado. VAM: ${data.vam_kmh.toFixed(2)} km/h · Ritmo: ${data.ritmo_str} /km`);
       setValue1(testType === "vam_5min" ? "5" : testType === "test_30_15_ift" ? "16" : testType === "yoyo_ri1" ? "16" : "2000");
       setValue2(
         testType === "vam_2000m"
@@ -261,6 +260,120 @@ export function VamTestForm({ athleteId, authToken, onSuccess }: Props) {
     }
   };
 
+  const formContent = !isAuthenticated ? (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+      Iniciá sesión para registrar un test VAM.
+    </div>
+  ) : (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {!fixedTestType && (
+        <div className="flex flex-wrap gap-2">
+          {TEST_TYPES.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => handleTypeChange(option.key)}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                testType === option.key
+                  ? "bg-indigo-600 text-white"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-sm text-blue-800">
+        <span className="font-medium">ℹ️ {description.title}</span>
+        <p className="mt-1 text-blue-700">{description.description}</p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="block text-xs text-slate-500 mb-2">{fieldLabels.value1}</label>
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={value1}
+            onChange={(event) => setValue1(event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+          />
+        </div>
+        {fieldLabels.value2 && (
+          <div>
+            <label className="block text-xs text-slate-500 mb-2">{fieldLabels.value2}</label>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={value2}
+              onChange={(event) => setValue2(event.target.value)}
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+            />
+          </div>
+        )}
+      </div>
+
+      {preview && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-4">
+          <p className="text-sm font-medium text-green-800">Vista previa del resultado</p>
+          <div className="flex gap-6 mt-1">
+            <span className="text-green-700 text-sm">
+              VAM: <strong>{preview.vamPreview} km/h</strong>
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <label className="block text-xs text-slate-500 mb-2">Notas (opcional)</label>
+        <textarea
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+          rows={3}
+          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+        />
+      </div>
+
+      <button
+        type="submit"
+        disabled={isSaving}
+        className="inline-flex items-center justify-center rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isSaving ? "Guardando..." : "Registrar test VAM"}
+      </button>
+
+      {error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {success}
+        </div>
+      )}
+
+      {createdTest && (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <p className="font-medium text-slate-900">Resultado del test registrado</p>
+          <p>Test: {createdTest.test_type.replace("_", " ")}</p>
+          <p>Fecha: {createdTest.date}</p>
+          <p>VAM: {createdTest.vam_kmh.toFixed(2)} km/h</p>
+          <p>Ritmo: {createdTest.ritmo_str} /km</p>
+        </div>
+      )}
+    </form>
+  );
+
+  if (embedded) {
+    return formContent;
+  }
+
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
@@ -272,115 +385,7 @@ export function VamTestForm({ athleteId, authToken, onSuccess }: Props) {
         </div>
       </div>
 
-      {!isAuthenticated ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          Iniciá sesión para registrar un test VAM.
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {TEST_TYPES.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                onClick={() => handleTypeChange(option.key)}
-                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                  testType === option.key
-                    ? "bg-indigo-600 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-sm text-blue-800">
-            <span className="font-medium">ℹ️ {description.title}</span>
-            <p className="mt-1 text-blue-700">{description.description}</p>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="block text-xs text-slate-500 mb-2">{fieldLabels.value1}</label>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={value1}
-                onChange={(event) => setValue1(event.target.value)}
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-              />
-            </div>
-            {fieldLabels.value2 && (
-              <div>
-                <label className="block text-xs text-slate-500 mb-2">{fieldLabels.value2}</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={value2}
-                  onChange={(event) => setValue2(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                />
-              </div>
-            )}
-          </div>
-
-          {preview && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-4">
-              <p className="text-sm font-medium text-green-800">Vista previa del resultado</p>
-              <div className="flex gap-6 mt-1">
-                <span className="text-green-700 text-sm">
-                  VAM: <strong>{preview.vamPreview} km/h</strong>
-                </span>
-                <span className="text-green-700 text-sm">
-                  Ritmo: <strong>{preview.ritmoPreview} /km</strong>
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs text-slate-500 mb-2">Notas (opcional)</label>
-            <textarea
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              rows={3}
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="inline-flex items-center justify-center rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSaving ? "Guardando..." : "Registrar test VAM"}
-          </button>
-
-          {error && (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              {success}
-            </div>
-          )}
-
-          {createdTest && (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-              <p className="font-medium text-slate-900">Resultado del test registrado</p>
-              <p>Test: {createdTest.test_type.replace("_", " ")}</p>
-              <p>Fecha: {createdTest.date}</p>
-              <p>VAM: {createdTest.vam_kmh.toFixed(2)} km/h</p>
-            </div>
-          )}
-        </form>
-      )}
+      {formContent}
     </div>
   );
 }

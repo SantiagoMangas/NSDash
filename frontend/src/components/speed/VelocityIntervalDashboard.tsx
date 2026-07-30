@@ -68,13 +68,6 @@ function parsePace(pace: string): number {
   return minutes * 60 + seconds;
 }
 
-function formatPace(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
-  const minutes = Math.floor(seconds / 60);
-  const remaining = Math.round(seconds - minutes * 60);
-  return `${minutes}:${remaining.toString().padStart(2, "0")}`;
-}
-
 function computeRange(rows: IntervalTableType["rows"]): {
   minKmh: number | null;
   maxKmh: number | null;

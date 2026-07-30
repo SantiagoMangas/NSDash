@@ -257,6 +257,7 @@ class VamTestResponse(BaseModel):
     vam_mpm: float
     vam_kmh: float
     vam_ms: float
+    ritmo_str: str
     notes: Optional[str]
     zonas: list[VamZoneResponse]
     tiempos_sprint: list[SprintTimeResponse]
@@ -268,6 +269,7 @@ class VamTestSummary(BaseModel):
     date: Date
     test_type: str
     vam_kmh: float
+    ritmo_str: str
 
 
 class VamTestSummaryItem(BaseModel):
@@ -321,6 +323,7 @@ class IntervalTables(BaseModel):
     from_vam: Optional[IntervalTable] = None
     from_30_15: Optional[IntervalTable] = None
     from_yoyo: Optional[IntervalTable] = None
+    from_speed_test: Optional[IntervalTable] = None
 
 
 class UnitConversions(BaseModel):
@@ -328,6 +331,114 @@ class UnitConversions(BaseModel):
     vam_mpm: float
     vam_ms: float
     vam_mpm_formatted: str
+
+
+# ─── Speed Test (MSS) Schemas ───────────────────────────────────
+
+
+class SpeedTestInput(BaseModel):
+    athlete_id: int
+    date: Date
+    distancia_m: float
+    tiempo_s: float
+    notes: Optional[str] = None
+
+    @field_validator("distancia_m")
+    @classmethod
+    def validate_distancia_m(cls, v: float) -> float:
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError("distancia_m debe ser un número positivo válido")
+        return v
+
+    @field_validator("tiempo_s")
+    @classmethod
+    def validate_tiempo_s(cls, v: float) -> float:
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError("tiempo_s debe ser un número positivo válido")
+        return v
+
+
+class SpeedTestResponse(BaseModel):
+    id: int
+    athlete_id: int
+    date: Date
+    distancia_m: float
+    tiempo_s: float
+    vel_kmh: float
+    ritmo_str: str
+    notes: Optional[str]
+
+
+class SpeedTestSummary(BaseModel):
+    id: int
+    athlete_id: int
+    date: Date
+    distancia_m: float
+    tiempo_s: float
+    vel_kmh: float
+    ritmo_str: str
+
+
+# ─── RSA-IFF Schemas ────────────────────────────────────────────
+
+
+class RsaFatigueTestInput(BaseModel):
+    athlete_id: int
+    date: Date
+    tiempos: list[float]
+    distancia_sprint_m: Optional[float] = None
+    pausa_s: Optional[float] = None
+    notes: Optional[str] = None
+
+    @field_validator("tiempos")
+    @classmethod
+    def validate_tiempos(cls, v: list[float]) -> list[float]:
+        if len(v) < 2:
+            raise ValueError("tiempos debe contener al menos 2 sprints para calcular el índice de fatiga")
+        for tiempo in v:
+            if not math.isfinite(tiempo) or tiempo <= 0:
+                raise ValueError("cada tiempo debe ser un número positivo válido")
+        return v
+
+    @field_validator("distancia_sprint_m")
+    @classmethod
+    def validate_distancia_sprint_m(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and (not math.isfinite(v) or v <= 0):
+            raise ValueError("distancia_sprint_m debe ser un número positivo válido")
+        return v
+
+    @field_validator("pausa_s")
+    @classmethod
+    def validate_pausa_s(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and (not math.isfinite(v) or v <= 0):
+            raise ValueError("pausa_s debe ser un número positivo válido")
+        return v
+
+
+class RsaFatigueTestResponse(BaseModel):
+    id: int
+    athlete_id: int
+    date: Date
+    tiempos: list[float]
+    distancia_sprint_m: Optional[float]
+    pausa_s: Optional[float]
+    notes: Optional[str]
+    cantidad_sprints: int
+    mejor_tiempo: float
+    peor_tiempo: float
+    tiempo_total: float
+    tiempo_ideal: float
+    indice_fatiga_pct: float
+    categoria: str
+
+
+class RsaFatigueTestSummary(BaseModel):
+    id: int
+    athlete_id: int
+    date: Date
+    cantidad_sprints: int
+    indice_fatiga_pct: float
+    categoria: str
 
 
 class UnitConversionRequest(BaseModel):

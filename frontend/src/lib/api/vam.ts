@@ -25,3 +25,7 @@ export async function createVamTest(
     notes,
   });
 }
+
+export async function getVamProgress(athleteId: number): Promise<any> {
+  return get(`/athletes/${athleteId}/vam-progress`, { cache: "no-store" });
+}

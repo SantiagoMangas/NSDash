@@ -8,7 +8,7 @@ export type Athlete = {
   notes?: string | null;
 };
 
-export type Module = "strength" | "speed";
+export type Module = "strength" | "speed" | "resistencia";
 
 export type DateRange = "7d" | "30d" | "90d" | "all";
 
@@ -74,7 +74,7 @@ export type IntervalRow = {
   porcentaje: number;
   velocidad_kmh: number;
   ritmo_str: string;
-  tipo: "fit_corto" | "fit_largo" | "mas_training";
+  tipo: "fit_corto" | "fit_largo" | "mas_training" | "tr_extensivo" | "tr_recovery" | "rst" | "sit";
 };
 
 export type IntervalTable = {
@@ -113,6 +113,7 @@ export type VelocityDashboard = {
     from_vam: IntervalTable | null;
     from_30_15: IntervalTable | null;
     from_yoyo: IntervalTable | null;
+    from_speed_test: IntervalTable | null;
   };
   sprint_reference: SprintReference[];
   unit_conversions: {
@@ -121,6 +122,17 @@ export type VelocityDashboard = {
     vam_ms: number;
     vam_mpm_formatted: string;
   };
+};
+
+export type VamProgressPoint = {
+  date: string;
+  vam_kmh: number;
+  test_type: string;
+};
+
+export type VamProgress = {
+  athlete_id: number;
+  history: VamProgressPoint[];
 };
 
 export type UnitConverterValues = {

@@ -14,10 +14,7 @@ import {
 import { ChartTooltip } from "@/components/strength/ChartTooltip";
 import { StrengthLogEditModal, type StrengthLogEditData } from "@/components/strength/StrengthLogEditModal";
 import { AthleteProfileModal } from "@/components/athletes/AthleteProfileModal";
-import { VamTestForm } from "@/components/speed/VamTestForm";
-import { VamTestHistory } from "@/components/speed/VamTestHistory";
-import { VamTestStatusAccordion } from "@/components/speed/VamTestStatusAccordion";
-import { TrainingTablesSection } from "@/components/speed/TrainingTablesSection";
+import { ResistenciaModule } from "@/components/resistencia/ResistenciaModule";
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import { ToastContainer } from "@/components/ui/Toast";
@@ -66,7 +63,6 @@ import {
 import {
   getSprintLogs,
   createSprintLog as createSprintLogAPI,
-  getVelocityDashboard,
 } from "@/lib/api/speed";
 import { BASE_URL } from "@/lib/api/client";
 
@@ -361,8 +357,6 @@ export default function Home() {
   const [savingSprintError, setSavingSprintError] = useState<string | null>(null);
   const [sprintReloadToken, setSprintReloadToken] = useState(0);
   const [vamHistoryRefreshKey, setVamHistoryRefreshKey] = useState(0);
-  const [dashboardData, setDashboardData] = useState<any>(null);
-  const [dashboardLoading, setDashboardLoading] = useState(false);
   const [sprintDateRange, setSprintDateRange] = useState<DateRange>(() =>
     readStoredDateRange(STORAGE_KEYS.sprintDateRange),
   );
@@ -508,18 +502,6 @@ export default function Home() {
     loadSprintLogsData();
   }, [selectedAthleteId, sprintReloadToken]);
 
-  // Load velocity dashboard for training tables
-  useEffect(() => {
-    if (!selectedAthleteId || !token) {
-      setDashboardData(null);
-      return;
-    }
-    setDashboardLoading(true);
-    getVelocityDashboard(selectedAthleteId)
-      .then((data) => setDashboardData(data))
-      .catch(() => setDashboardData(null))
-      .finally(() => setDashboardLoading(false));
-  }, [selectedAthleteId, token]);
 
   // ─── [NEW] Filtered logs based on dateRange ────────────────────────────────
   const filteredLogs = useMemo(() => {
@@ -1005,6 +987,16 @@ export default function Home() {
             }`}
           >
             ⚡ Velocidad
+          </button>
+          <button
+            onClick={() => setModule("resistencia")}
+            className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all active:scale-95 ${
+              module === "resistencia"
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            🫁 Resistencia
           </button>
         </div>
 
@@ -1650,56 +1642,6 @@ export default function Home() {
               )}
             </section>
 
-            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
-                <div>
-                  <h2 className="text-base font-semibold text-slate-700">Registro de Test VAM</h2>
-                  <p className="text-xs text-slate-400">
-                    Formulario separado para registrar tests de VAM, independiente del sprint log.
-                  </p>
-                </div>
-              </div>
-
-        <VamTestForm
-          athleteId={selectedAthleteId}
-          authToken={token}
-          onSuccess={() => setVamHistoryRefreshKey((prev) => prev + 1)}
-        />
-
-        {token && (
-          <div className="mt-6">
-            <VamTestStatusAccordion athleteId={selectedAthleteId} authToken={token} />
-          </div>
-        )}
-      </section>
-
-      {selectedAthleteId !== null && (
-        <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <VamTestHistory athleteId={selectedAthleteId} refreshKey={vamHistoryRefreshKey} />
-        </section>
-      )}
-
-      {dashboardData && (
-        <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wide mb-4">
-            Cuadros de entrenamiento
-          </h3>
-          <TrainingTablesSection intervalTables={dashboardData.interval_tables} />
-        </section>
-      )}
-
-      {dashboardLoading && (
-        <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <p className="text-sm text-slate-400">Cargando cuadros de entrenamiento...</p>
-        </section>
-      )}
-
-      {!dashboardLoading && !dashboardData && selectedAthleteId !== null && (
-        <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <p className="text-sm text-slate-400">Registrá al menos un test VAM para ver los cuadros.</p>
-        </section>
-      )}
-
             {sprintLogs.length === 0 ? (
               <EmptyStateCard
                 icon={
@@ -1736,6 +1678,15 @@ export default function Home() {
 
           </div>
         ) : null}
+
+        {module === "resistencia" && (
+          <ResistenciaModule
+            athleteId={selectedAthleteId}
+            authToken={token}
+            historyRefreshKey={vamHistoryRefreshKey}
+            onEvaluationSuccess={() => setVamHistoryRefreshKey((prev) => prev + 1)}
+          />
+        )}
 
       </div>
     </main>

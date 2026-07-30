@@ -10,6 +10,7 @@ export default function SprintReferenceTable({ sprintReference }: Props) {
       <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
         <h2 className="text-lg font-semibold text-slate-900">Referencia de Sprint</h2>
         <p className="mt-1 text-sm text-slate-600">
+          {/* TODO: ajustar copy según test de referencia (VAM vs speed_test) cuando SprintReferenceTable reciba referenceTestType */}
           Tiempos estimados para distancias de 10m a 1000m usando la mejor VAM.
         </p>
       </div>

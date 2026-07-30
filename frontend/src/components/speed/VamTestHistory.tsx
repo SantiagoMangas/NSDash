@@ -5,6 +5,7 @@ import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import ZonesTable from "@/components/speed/ZonesTable";
 import { getVamTest, getVamTests } from "@/lib/api/vam";
+import { formatSecondsToPace } from "@/lib/utils";
 import type { VelocityZone } from "@/lib/types";
 
 const TEST_LABELS: Record<string, string> = {
@@ -20,6 +21,7 @@ type VamTestHistoryItem = {
   date: string;
   test_type: string;
   vam_kmh: number;
+  ritmo_str: string;
 };
 
 type VamZoneDetail = {
@@ -39,21 +41,6 @@ type VamTestDetail = VamTestHistoryItem & {
   notas?: string | null;
   zonas: VamZoneDetail[];
 };
-
-function formatSecondsToPace(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
-  const minutes = Math.floor(seconds / 60);
-  const remaining = Math.round(seconds - minutes * 60);
-  return `${minutes}:${remaining.toString().padStart(2, "0")}`;
-}
-
-function formatPaceFromKmh(vamKmh: number) {
-  if (!vamKmh || vamKmh <= 0) return '--'
-  const ritmoDecimal = 60 / vamKmh
-  const minutos = Math.floor(ritmoDecimal)
-  const segundos = Math.round((ritmoDecimal - minutos) * 60)
-  return `${minutos}:${segundos.toString().padStart(2, '0')}`
-}
 
 function mapZones(zones: VamZoneDetail[]): VelocityZone[] {
   return zones.map((zone) => ({
@@ -162,7 +149,7 @@ export function VamTestHistory({ athleteId, refreshKey }: { athleteId: number | 
                     <td className="px-4 py-3">{new Date(test.date).toLocaleDateString("es-AR")}</td>
                     <td className="px-4 py-3">{TEST_LABELS[test.test_type] ?? test.test_type}</td>
                     <td className="px-4 py-3 font-semibold text-slate-900">{test.vam_kmh.toFixed(2)}</td>
-                    <td className="px-4 py-3">{formatPaceFromKmh(test.vam_kmh)}</td>
+                    <td className="px-4 py-3">{test.ritmo_str}</td>
                     <td className="px-4 py-3">
                       {test.test_type === "vam_2000m" || test.test_type === "vam_5min" ? (
                         <button

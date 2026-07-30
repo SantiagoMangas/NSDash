@@ -7,8 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from . import auth, models, schemas, vam_calculator
+from . import auth, models, schemas, rsa_calculator, speed_calculator, vam_calculator
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
+from .demo_seed import has_demo_data, seed_demo_data, seed_resistencia_demo_data
 
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -120,6 +121,9 @@ def on_startup() -> None:
                 else:
                     db.add(models.Exercise(name=name))
             db.commit()
+        if not has_demo_data(db):
+            seed_demo_data(db)
+        seed_resistencia_demo_data(db)
 
 
 @app.get("/")
@@ -231,6 +235,20 @@ def delete_athlete(
     db.query(models.TrainingLog).filter(models.TrainingLog.athlete_id == athlete_id).delete()
     db.query(models.SprintLog).filter(models.SprintLog.athlete_id == athlete_id).delete()
     db.query(models.VamTest).filter(models.VamTest.athlete_id == athlete_id).delete()
+    db.query(models.SpeedTest).filter(models.SpeedTest.athlete_id == athlete_id).delete()
+    rsa_test_ids = [
+        test_id
+        for (test_id,) in db.query(models.RsaFatigueTest.id)
+        .filter(models.RsaFatigueTest.athlete_id == athlete_id)
+        .all()
+    ]
+    if rsa_test_ids:
+        db.query(models.RsaSprintTime).filter(
+            models.RsaSprintTime.rsa_fatigue_test_id.in_(rsa_test_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.RsaFatigueTest).filter(
+            models.RsaFatigueTest.athlete_id == athlete_id
+        ).delete(synchronize_session=False)
     db.delete(db_athlete)
     db.commit()
     return {"detail": "Athlete deleted"}
@@ -670,6 +688,7 @@ def create_vam_test(
         "vam_mpm": db_vam_test.vam_mpm,
         "vam_kmh": db_vam_test.vam_kmh,
         "vam_ms": db_vam_test.vam_ms,
+        "ritmo_str": vam_calculator._format_pace_from_kmh(db_vam_test.vam_kmh),
         "notes": db_vam_test.notes,
         "zonas": zonas,
         "tiempos_sprint": tiempos_sprint,
@@ -694,8 +713,18 @@ def list_vam_tests(
         .order_by(models.VamTest.date.desc())
         .all()
     )
-    
-    return tests
+
+    return [
+        {
+            "id": test.id,
+            "athlete_id": test.athlete_id,
+            "date": test.date,
+            "test_type": test.test_type,
+            "vam_kmh": test.vam_kmh,
+            "ritmo_str": vam_calculator._format_pace_from_kmh(test.vam_kmh),
+        }
+        for test in tests
+    ]
 
 
 def format_seconds_to_pace(seconds: float) -> str:
@@ -803,6 +832,7 @@ def get_vam_test(
         "vam_mpm": test.vam_mpm,
         "vam_kmh": test.vam_kmh,
         "vam_ms": test.vam_ms,
+        "ritmo_str": vam_calculator._format_pace_from_kmh(test.vam_kmh),
         "notes": test.notes,
         "zonas": zonas,
         "tiempos_sprint": tiempos_sprint,
@@ -863,8 +893,46 @@ def get_velocity_dashboard(
             .filter(models.VamTest.athlete_id == athlete_id)
             .all()
         )
+        best_speed_test = query_best_speed_test(db, athlete_id)
+
         if not tests:
-            raise HTTPException(status_code=404, detail="No VAM tests found for athlete")
+            if not best_speed_test:
+                raise HTTPException(status_code=404, detail="No tests found for athlete")
+
+            vel_kmh = best_speed_test.vel_kmh
+            vel_mpm = (vel_kmh * 1000) / 60
+            vel_ms = vel_kmh / 3.6
+            best_test_data = {
+                "test_type": "speed_test",
+                "date": best_speed_test.date,
+                "vam_kmh": vel_kmh,
+                "vam_mpm": round(vel_mpm, 2),
+                "vam_ms": round(vel_ms, 2),
+                "vam_mpm_formatted": format_seconds_to_pace(3600 / vel_kmh) if vel_kmh > 0 else "0:00",
+            }
+
+            interval_tables = {
+                "from_vam": None,
+                "from_30_15": None,
+                "from_yoyo": None,
+                "from_speed_test": vam_calculator.calculate_interval_table(vel_kmh, "speed_test"),
+            }
+
+            return {
+                "athlete_id": athlete_id,
+                "best_test": best_test_data,
+                "all_tests_summary": [],
+                "zones_source": {"available": False, "test_type": None, "vam_kmh": None},
+                "training_zones": [],
+                "interval_tables": interval_tables,
+                "sprint_reference": vam_calculator.calculate_sprint_times(vel_ms),
+                "unit_conversions": {
+                    "vam_kmh": vel_kmh,
+                    "vam_mpm": round(vel_mpm, 2),
+                    "vam_ms": round(vel_ms, 2),
+                    "vam_mpm_formatted": best_test_data["vam_mpm_formatted"],
+                },
+            }
 
         best_test = get_best_vam_test(tests)
         best_test_data = {
@@ -900,11 +968,13 @@ def get_velocity_dashboard(
 
         best_30_15_test = max((test for test in tests if test.test_type == "test_30_15_ift"), key=lambda test: (test.vam_kmh, test.date), default=None)
         best_yoyo_test = max((test for test in tests if test.test_type == "yoyo_ri1"), key=lambda test: (test.vam_kmh, test.date), default=None)
+        best_speed_test = query_best_speed_test(db, athlete_id)
 
         interval_tables = {
             "from_vam": vam_calculator.calculate_interval_table(best_vam_source_test.vam_kmh, "vam") if best_vam_source_test else None,
             "from_30_15": vam_calculator.calculate_interval_table(best_30_15_test.vam_kmh, "30_15") if best_30_15_test else None,
             "from_yoyo": vam_calculator.calculate_interval_table(best_yoyo_test.vam_kmh, "yoyo") if best_yoyo_test else None,
+            "from_speed_test": vam_calculator.calculate_interval_table(best_speed_test.vel_kmh, "speed_test") if best_speed_test else None,
         }
 
         sprint_reference = vam_calculator.calculate_sprint_times(best_test.vam_ms)
@@ -942,3 +1012,209 @@ def post_convert_units(
 ) -> dict[str, float | str]:
     """Convierte entre km/h, m/min y m/s para el picker de la UI."""
     return convert_units(payload.value, payload.from_unit)
+
+
+# ─── Speed Test (MSS) Endpoints ─────────────────────────────────
+
+
+def build_speed_test_response(test: models.SpeedTest) -> dict:
+    return {
+        "id": test.id,
+        "athlete_id": test.athlete_id,
+        "date": test.date,
+        "distancia_m": test.distancia_m,
+        "tiempo_s": test.tiempo_s,
+        "vel_kmh": test.vel_kmh,
+        "ritmo_str": vam_calculator._format_pace_from_kmh(test.vel_kmh),
+        "notes": test.notes,
+    }
+
+
+def get_best_speed_test(tests: list[models.SpeedTest]) -> models.SpeedTest:
+    return max(tests, key=lambda test: (test.vel_kmh, test.date))
+
+
+def query_best_speed_test(db: Session, athlete_id: int) -> models.SpeedTest | None:
+    """Return the speed test with highest vel_kmh for an athlete, or None."""
+    tests = (
+        db.query(models.SpeedTest)
+        .filter(models.SpeedTest.athlete_id == athlete_id)
+        .all()
+    )
+    if not tests:
+        return None
+    return get_best_speed_test(tests)
+
+
+@app.post("/speed-tests", response_model=schemas.SpeedTestResponse)
+def create_speed_test(
+    data: schemas.SpeedTestInput,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """Create a MSS / speed test from distance (m) and time (s)."""
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == data.athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    try:
+        vel_kmh = speed_calculator.calculate_vel_kmh(data.distancia_m, data.tiempo_s)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    db_speed_test = models.SpeedTest(
+        athlete_id=data.athlete_id,
+        date=data.date,
+        distancia_m=data.distancia_m,
+        tiempo_s=data.tiempo_s,
+        vel_kmh=vel_kmh,
+        notes=data.notes,
+    )
+    db.add(db_speed_test)
+    db.commit()
+    db.refresh(db_speed_test)
+
+    return build_speed_test_response(db_speed_test)
+
+
+@app.get("/athletes/{athlete_id}/speed-tests", response_model=list[schemas.SpeedTestSummary])
+def list_speed_tests(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> list[dict]:
+    """List all MSS / speed tests for an athlete, newest first."""
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    tests = (
+        db.query(models.SpeedTest)
+        .filter(models.SpeedTest.athlete_id == athlete_id)
+        .order_by(models.SpeedTest.date.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": test.id,
+            "athlete_id": test.athlete_id,
+            "date": test.date,
+            "distancia_m": test.distancia_m,
+            "tiempo_s": test.tiempo_s,
+            "vel_kmh": test.vel_kmh,
+            "ritmo_str": vam_calculator._format_pace_from_kmh(test.vel_kmh),
+        }
+        for test in tests
+    ]
+
+
+# ─── RSA-IFF Endpoints ──────────────────────────────────────────
+
+
+def get_rsa_sprint_times(db: Session, test_id: int) -> list[float]:
+    rows = (
+        db.query(models.RsaSprintTime)
+        .filter(models.RsaSprintTime.rsa_fatigue_test_id == test_id)
+        .order_by(models.RsaSprintTime.sprint_order.asc())
+        .all()
+    )
+    return [row.tiempo_s for row in rows]
+
+
+def build_rsa_fatigue_test_response(db: Session, test: models.RsaFatigueTest) -> dict:
+    return {
+        "id": test.id,
+        "athlete_id": test.athlete_id,
+        "date": test.date,
+        "tiempos": get_rsa_sprint_times(db, test.id),
+        "distancia_sprint_m": test.distancia_sprint_m,
+        "pausa_s": test.pausa_s,
+        "notes": test.notes,
+        "cantidad_sprints": test.cantidad_sprints,
+        "mejor_tiempo": test.mejor_tiempo,
+        "peor_tiempo": test.peor_tiempo,
+        "tiempo_total": test.tiempo_total,
+        "tiempo_ideal": test.tiempo_ideal,
+        "indice_fatiga_pct": test.indice_fatiga_pct,
+        "categoria": test.categoria,
+    }
+
+
+@app.post("/rsa-fatigue-tests", response_model=schemas.RsaFatigueTestResponse)
+def create_rsa_fatigue_test(
+    data: schemas.RsaFatigueTestInput,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """Create an RSA-IFF test from a list of sprint times."""
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == data.athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    try:
+        results = rsa_calculator.calculate_rsa_fatigue_index(data.tiempos)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    db_rsa_test = models.RsaFatigueTest(
+        athlete_id=data.athlete_id,
+        date=data.date,
+        distancia_sprint_m=data.distancia_sprint_m,
+        pausa_s=data.pausa_s,
+        notes=data.notes,
+        cantidad_sprints=results["cantidad_sprints"],
+        mejor_tiempo=results["mejor_tiempo"],
+        peor_tiempo=results["peor_tiempo"],
+        tiempo_total=results["tiempo_total"],
+        tiempo_ideal=results["tiempo_ideal"],
+        indice_fatiga_pct=results["indice_fatiga_pct"],
+        categoria=results["categoria"],
+    )
+    db.add(db_rsa_test)
+    db.flush()
+
+    for order, tiempo in enumerate(data.tiempos):
+        db.add(
+            models.RsaSprintTime(
+                rsa_fatigue_test_id=db_rsa_test.id,
+                sprint_order=order,
+                tiempo_s=tiempo,
+            )
+        )
+
+    db.commit()
+    db.refresh(db_rsa_test)
+
+    return build_rsa_fatigue_test_response(db, db_rsa_test)
+
+
+@app.get("/athletes/{athlete_id}/rsa-fatigue-tests", response_model=list[schemas.RsaFatigueTestSummary])
+def list_rsa_fatigue_tests(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> list[dict]:
+    """List all RSA-IFF tests for an athlete, newest first."""
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    tests = (
+        db.query(models.RsaFatigueTest)
+        .filter(models.RsaFatigueTest.athlete_id == athlete_id)
+        .order_by(models.RsaFatigueTest.date.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": test.id,
+            "athlete_id": test.athlete_id,
+            "date": test.date,
+            "cantidad_sprints": test.cantidad_sprints,
+            "indice_fatiga_pct": test.indice_fatiga_pct,
+            "categoria": test.categoria,
+        }
+        for test in tests
+    ]

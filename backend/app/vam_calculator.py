@@ -138,6 +138,46 @@ def calculate_interval_table(vam_kmh: float, source: str) -> dict:
     if source == "yoyo":
         reference_kmh = _get_yoyo_reference_speed(vam_kmh)
 
+    if source == "speed_test":
+        tr_extensivo_pcts = [70, 80]
+        tr_recovery_pcts = [60, 70]
+        rst_pcts = [80, 90]
+        sit_pcts = [85, 95]
+        rows = []
+        for pct in tr_extensivo_pcts:
+            rows.append({
+                "porcentaje": pct,
+                "velocidad_kmh": round(reference_kmh * pct / 100, 2),
+                "ritmo_str": _format_pace_from_kmh(reference_kmh * pct / 100),
+                "tipo": "tr_extensivo",
+            })
+        for pct in tr_recovery_pcts:
+            rows.append({
+                "porcentaje": pct,
+                "velocidad_kmh": round(reference_kmh * pct / 100, 2),
+                "ritmo_str": _format_pace_from_kmh(reference_kmh * pct / 100),
+                "tipo": "tr_recovery",
+            })
+        for pct in rst_pcts:
+            rows.append({
+                "porcentaje": pct,
+                "velocidad_kmh": round(reference_kmh * pct / 100, 2),
+                "ritmo_str": _format_pace_from_kmh(reference_kmh * pct / 100),
+                "tipo": "rst",
+            })
+        for pct in sit_pcts:
+            rows.append({
+                "porcentaje": pct,
+                "velocidad_kmh": round(reference_kmh * pct / 100, 2),
+                "ritmo_str": _format_pace_from_kmh(reference_kmh * pct / 100),
+                "tipo": "sit",
+            })
+        return {
+            "source": source,
+            "reference_kmh": round(reference_kmh, 2),
+            "rows": rows,
+        }
+
     if source == "30_15":
         fit_corto_pcts = [95, 100, 105, 110, 115]
         fit_largo_pcts = [95, 100]

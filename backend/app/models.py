@@ -67,3 +67,42 @@ class VamTest(Base):
     vam_kmh = Column(Float, nullable=False)   # VAM en km/h
     vam_ms = Column(Float, nullable=False)    # VAM en m/s
     notes = Column(String, nullable=True)
+
+
+class SpeedTest(Base):
+    __tablename__ = "speed_tests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    athlete_id = Column(Integer, ForeignKey("athletes.id"), nullable=False)
+    date = Column(Date, nullable=False)
+    distancia_m = Column(Float, nullable=False)
+    tiempo_s = Column(Float, nullable=False)
+    vel_kmh = Column(Float, nullable=False)
+    notes = Column(String, nullable=True)
+
+
+class RsaFatigueTest(Base):
+    __tablename__ = "rsa_fatigue_tests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    athlete_id = Column(Integer, ForeignKey("athletes.id"), nullable=False)
+    date = Column(Date, nullable=False)
+    distancia_sprint_m = Column(Float, nullable=True)
+    pausa_s = Column(Float, nullable=True)
+    notes = Column(Text, nullable=True)
+    cantidad_sprints = Column(Integer, nullable=False)
+    mejor_tiempo = Column(Float, nullable=False)
+    peor_tiempo = Column(Float, nullable=False)
+    tiempo_total = Column(Float, nullable=False)
+    tiempo_ideal = Column(Float, nullable=False)
+    indice_fatiga_pct = Column(Float, nullable=False)
+    categoria = Column(String, nullable=False)
+
+
+class RsaSprintTime(Base):
+    __tablename__ = "rsa_sprint_times"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rsa_fatigue_test_id = Column(Integer, ForeignKey("rsa_fatigue_tests.id"), nullable=False)
+    sprint_order = Column(Integer, nullable=False)
+    tiempo_s = Column(Float, nullable=False)
