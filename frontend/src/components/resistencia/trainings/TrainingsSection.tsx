@@ -19,11 +19,8 @@ export function TrainingsSection({ dashboard, loading }: Props) {
 
   const speedTestTable = dashboard?.interval_tables.from_speed_test ?? null;
 
-  const referenceVam =
-    referenceTable?.reference_kmh ??
-    dashboard?.best_test.vam_kmh ??
-    speedTestTable?.reference_kmh ??
-    null;
+  const vamReferenceKmh = referenceTable?.reference_kmh ?? null;
+  const speedReferenceKmh = speedTestTable?.reference_kmh ?? null;
 
   const hasAnyTest = referenceTable !== null || speedTestTable !== null;
 
@@ -45,7 +42,8 @@ export function TrainingsSection({ dashboard, loading }: Props) {
       ) : (
         <div className="space-y-8">
           <RecommendedTrainingCards
-            vamKmh={referenceVam ?? 0}
+            vamReferenceKmh={vamReferenceKmh}
+            speedReferenceKmh={speedReferenceKmh}
             intervalTable={referenceTable}
             speedTestTable={speedTestTable}
           />

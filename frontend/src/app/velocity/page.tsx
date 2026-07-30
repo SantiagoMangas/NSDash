@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import { VamTestHistory } from "@/components/speed/VamTestHistory";
+import { RecommendedTrainingCards } from "@/components/resistencia/trainings/RecommendedTrainingCards";
 import { TrainingTablesSection } from "@/components/speed/TrainingTablesSection";
 import SprintReferenceTable from "@/components/speed/SprintReferenceTable";
 import UnitConverter from "@/components/speed/UnitConverter";
@@ -85,6 +86,19 @@ export default function VelocityPage() {
 
     loadDashboard();
   }, [selectedAthleteId]);
+
+  const referenceTable =
+    dashboard?.interval_tables.from_vam ??
+    dashboard?.interval_tables.from_30_15 ??
+    dashboard?.interval_tables.from_yoyo ??
+    null;
+
+  const speedTestTable = dashboard?.interval_tables.from_speed_test ?? null;
+
+  const vamReferenceKmh = referenceTable?.reference_kmh ?? null;
+  const speedReferenceKmh = speedTestTable?.reference_kmh ?? null;
+
+  const hasAnyTest = referenceTable !== null || speedTestTable !== null;
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
@@ -179,7 +193,17 @@ export default function VelocityPage() {
                 description="Las zonas de entrenamiento se calculan a partir del Test VAM 2000m o el Test VAM 5 minutos. Registrá uno de estos tests para ver las zonas."
               />
             )}
-            <TrainingTablesSection intervalTables={dashboard.interval_tables} />
+            <div className="space-y-8">
+              {hasAnyTest ? (
+                <RecommendedTrainingCards
+                  vamReferenceKmh={vamReferenceKmh}
+                  speedReferenceKmh={speedReferenceKmh}
+                  intervalTable={referenceTable}
+                  speedTestTable={speedTestTable}
+                />
+              ) : null}
+              <TrainingTablesSection intervalTables={dashboard.interval_tables} />
+            </div>
             <SprintReferenceTable sprintReference={dashboard.sprint_reference} />
           </div>
         ) : (

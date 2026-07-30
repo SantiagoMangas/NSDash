@@ -53,7 +53,7 @@ const TEST_DESCRIPTIONS: Record<
   yoyo_ri1: {
     title: "Yo-Yo Test RI1 (Intermittent Recovery)",
     description:
-      "Test de ida y vuelta con recuperaciones de 10 seg entre series. Ingresá el nivel alcanzado (puede tener decimal, ej: 19.4). La app toma el número entero del nivel y lo convierte a km/h usando la tabla oficial del test.",
+      "Test de ida y vuelta con recuperaciones de 10 seg entre series. Ingresá la velocidad alcanzada en km/h (según el resultado del test o la referencia del preparador): ese valor es la VAM. Podés anotar el nivel alcanzado como referencia; no se usa en el cálculo.",
   },
 };
 
@@ -66,12 +66,19 @@ function buildFieldLabels(testType: VamTestType) {
     case "test_30_15_ift":
       return { value1: "Velocidad final (km/h)", value2: null };
     case "yoyo_ri1":
-      return { value1: "Nivel alcanzado", value2: "Velocidad de referencia (km/h)" };
+      return {
+        value1: "Nivel alcanzado (solo referencia, no afecta el cálculo)",
+        value2: "Velocidad alcanzada (km/h)",
+      };
   }
 }
 
 function calculatePreview(testType: VamTestType, value1: number, value2: number | null) {
-  if (value1 <= 0 || (testType !== "test_30_15_ift" && value2 !== null && value2 <= 0)) {
+  if (testType === "yoyo_ri1") {
+    if (!value2 || value2 <= 0) {
+      return null;
+    }
+  } else if (value1 <= 0 || (testType !== "test_30_15_ift" && value2 !== null && value2 <= 0)) {
     return null;
   }
 

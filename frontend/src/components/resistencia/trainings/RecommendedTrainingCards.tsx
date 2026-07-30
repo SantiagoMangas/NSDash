@@ -3,7 +3,8 @@
 import type { IntervalRow, IntervalTable } from "@/lib/types";
 
 type Props = {
-  vamKmh: number;
+  vamReferenceKmh: number | null;
+  speedReferenceKmh: number | null;
   intervalTable: IntervalTable | null;
   speedTestTable?: IntervalTable | null;
 };
@@ -99,18 +100,25 @@ function formatPercentRange(range: { min: IntervalRow; max: IntervalRow } | null
   return `${range.min.porcentaje}-${range.max.porcentaje}%`;
 }
 
-export function RecommendedTrainingCards({ vamKmh, intervalTable, speedTestTable = null }: Props) {
+export function RecommendedTrainingCards({
+  vamReferenceKmh,
+  speedReferenceKmh,
+  intervalTable,
+  speedTestTable = null,
+}: Props) {
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
         <p className="text-xs font-medium uppercase tracking-wide text-indigo-600">Entrenamiento recomendado</p>
-        <p className="mt-1 text-sm text-slate-700">
-          VAM de referencia: <strong className="text-slate-900">{vamKmh.toFixed(2)} km/h</strong>
-        </p>
-        {speedTestTable ? (
+        {vamReferenceKmh !== null ? (
+          <p className="mt-1 text-sm text-slate-700">
+            VAM de referencia: <strong className="text-slate-900">{vamReferenceKmh.toFixed(2)} km/h</strong>
+          </p>
+        ) : null}
+        {speedReferenceKmh !== null ? (
           <p className="mt-1 text-sm text-slate-700">
             Velocidad máxima (Speed Test):{" "}
-            <strong className="text-slate-900">{speedTestTable.reference_kmh.toFixed(2)} km/h</strong>
+            <strong className="text-slate-900">{speedReferenceKmh.toFixed(2)} km/h</strong>
           </p>
         ) : null}
       </div>

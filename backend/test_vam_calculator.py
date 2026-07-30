@@ -6,6 +6,7 @@ Run with: pytest test_vam_calculator.py -v
 import pytest
 from app.vam_calculator import (
     calculate_vam_from_test,
+    calculate_interval_table,
     calculate_zones,
     calculate_sprint_times,
 )
@@ -65,6 +66,21 @@ class TestCalculateVamFromTest:
         """Test raises error when required value2 is missing."""
         with pytest.raises(ValueError, match="requires value2"):
             calculate_vam_from_test("vam_2000m", value1=2000, value2=None)
+
+
+class TestCalculateIntervalTable:
+    def test_30_15_mas_training_includes_120_percent(self):
+        table = calculate_interval_table(17.8, "30_15")
+        mas_rows = [row for row in table["rows"] if row["tipo"] == "mas_training"]
+        percentages = [row["porcentaje"] for row in mas_rows]
+
+        assert percentages == [100, 105, 110, 115, 120]
+
+        row_115 = next(row for row in mas_rows if row["porcentaje"] == 115)
+        row_120 = next(row for row in mas_rows if row["porcentaje"] == 120)
+
+        assert row_115["velocidad_kmh"] == 20.47
+        assert row_120["velocidad_kmh"] == 21.36
 
 
 class TestCalculateZones:

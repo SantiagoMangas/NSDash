@@ -181,7 +181,7 @@ def calculate_interval_table(vam_kmh: float, source: str) -> dict:
     if source == "30_15":
         fit_corto_pcts = [95, 100, 105, 110, 115]
         fit_largo_pcts = [95, 100]
-        mas_training_pcts = [100, 105, 110, 115]
+        mas_training_pcts = [100, 105, 110, 115, 120]
     else:
         fit_corto_pcts = [80, 85, 90, 95, 100, 105, 110]
         fit_largo_pcts = [80, 85, 90, 95, 100]
