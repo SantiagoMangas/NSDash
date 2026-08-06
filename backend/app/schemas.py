@@ -272,6 +272,11 @@ class VamTestSummary(BaseModel):
     ritmo_str: str
 
 
+class YoyoLevelItem(BaseModel):
+    nivel: int
+    velocidad_kmh: float
+
+
 class VamTestSummaryItem(BaseModel):
     test_type: str
     date: Date
@@ -427,9 +432,13 @@ class RsaFatigueTestResponse(BaseModel):
     mejor_tiempo: float
     peor_tiempo: float
     tiempo_total: float
+    tiempo_medio: float
     tiempo_ideal: float
     indice_fatiga_pct: float
     categoria: str
+    velocidad_mejor_kmh: Optional[float] = None
+    velocidad_peor_kmh: Optional[float] = None
+    velocidad_media_kmh: Optional[float] = None
 
 
 class RsaFatigueTestSummary(BaseModel):
@@ -439,6 +448,71 @@ class RsaFatigueTestSummary(BaseModel):
     cantidad_sprints: int
     indice_fatiga_pct: float
     categoria: str
+
+
+# ─── ASR (Anaerobic Speed Reserve) Schemas ───────────────────────
+
+
+class AsrComparativaPorMss(BaseModel):
+    pct_mss: float
+    velocidad_kmh: float
+    srr_pct: float
+
+
+class AsrComparativaPorSrr(BaseModel):
+    pct_srr: float
+    velocidad_kmh: float
+    mmss_pct: float
+
+
+class AsrResponse(BaseModel):
+    athlete_id: int
+    missing: list[str] = []
+    mss_kmh: Optional[float] = None
+    ift_kmh: Optional[float] = None
+    asr_kmh: Optional[float] = None
+    comparativa_por_mss: Optional[AsrComparativaPorMss] = None
+    comparativa_por_srr: Optional[AsrComparativaPorSrr] = None
+
+
+# ─── National table / team grouping ──────────────────────────────
+
+
+class NationalTableAthleteRow(BaseModel):
+    athlete_id: int
+    nombre: str
+    missing: list[str] = []
+    ift_kmh: Optional[float] = None
+    mmss_kmh: Optional[float] = None
+    asr_kmh: Optional[float] = None
+    velocidad_referencia_kmh: Optional[float] = None
+    pct_srr: Optional[float] = None
+
+
+class NationalTableResponse(BaseModel):
+    pct_srr: float
+    athletes: list[NationalTableAthleteRow]
+
+
+class NationalGroupAthlete(BaseModel):
+    athlete_id: int
+    nombre: str
+    velocidad_referencia_kmh: float
+
+
+class NationalGroup(BaseModel):
+    grupo: int
+    techo_kmh: float
+    athletes: list[NationalGroupAthlete]
+
+
+class NationalTableGroupsResponse(BaseModel):
+    pct_srr: float
+    cantidad_grupos: int
+    diferencia_pct: float
+    athletes: list[NationalTableAthleteRow]
+    groups: list[NationalGroup]
+    sin_datos: list[NationalTableAthleteRow]
 
 
 class UnitConversionRequest(BaseModel):
@@ -461,6 +535,15 @@ class UnitConversionResponse(BaseModel):
     ms: float
 
 
+class PreferredSpeedTestUpdate(BaseModel):
+    speed_test_id: Optional[int] = None
+
+
+class PreferredSpeedTestResponse(BaseModel):
+    athlete_id: int
+    preferred_speed_test_id: Optional[int] = None
+
+
 class VelocityDashboard(BaseModel):
     athlete_id: int
     best_test: BestVamTest
@@ -470,3 +553,6 @@ class VelocityDashboard(BaseModel):
     interval_tables: IntervalTables
     sprint_reference: list[SprintTimeResponse]
     unit_conversions: UnitConversions
+    # Preferencia persistida (null = automático). Id en uso para Tempo/RST/SIT.
+    preferred_speed_test_id: Optional[int] = None
+    speed_test_reference_id: Optional[int] = None

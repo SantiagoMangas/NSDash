@@ -2,12 +2,12 @@ import math
 import os
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from . import auth, models, schemas, rsa_calculator, speed_calculator, vam_calculator
+from . import asr_calculator, auth, models, schemas, rsa_calculator, speed_calculator, team_grouping, vam_calculator
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
 from .demo_seed import has_demo_data, seed_demo_data, seed_resistencia_demo_data
 
@@ -49,6 +49,7 @@ ATHLETE_PROFILE_COLUMNS: dict[str, str] = {
     "body_weight_kg": "FLOAT",
     "goal": "VARCHAR(500)",
     "notes": "TEXT",
+    "preferred_speed_test_id": "INTEGER",
 }
 
 PERCENTAGE_MAP = {
@@ -639,6 +640,17 @@ def get_sprint_session_score(
 # ─── VAM Endpoints ──────────────────────────────────────────────
 
 
+@app.get("/reference/yoyo-levels", response_model=list[schemas.YoyoLevelItem])
+def get_yoyo_levels(
+    current_user: int = Depends(auth.get_current_user),
+) -> list:
+    """Devuelve la tabla oficial Yo-Yo RI1 (nivel → velocidad) desde YOYO_RI1_TABLE."""
+    return [
+        {"nivel": nivel, "velocidad_kmh": velocidad}
+        for nivel, velocidad in sorted(vam_calculator.YOYO_RI1_TABLE.items())
+    ]
+
+
 @app.post("/vam-tests", response_model=schemas.VamTestResponse)
 def create_vam_test(
     data: schemas.VamTestInput,
@@ -893,18 +905,19 @@ def get_velocity_dashboard(
             .filter(models.VamTest.athlete_id == athlete_id)
             .all()
         )
-        best_speed_test = query_best_speed_test(db, athlete_id)
+        # Tempo/RST/SIT: preferencia persistente del atleta, si no → más veloz
+        reference_speed_test = resolve_speed_test_for_intervals(db, athlete)
 
         if not tests:
-            if not best_speed_test:
+            if not reference_speed_test:
                 raise HTTPException(status_code=404, detail="No tests found for athlete")
 
-            vel_kmh = best_speed_test.vel_kmh
+            vel_kmh = reference_speed_test.vel_kmh
             vel_mpm = (vel_kmh * 1000) / 60
             vel_ms = vel_kmh / 3.6
             best_test_data = {
                 "test_type": "speed_test",
-                "date": best_speed_test.date,
+                "date": reference_speed_test.date,
                 "vam_kmh": vel_kmh,
                 "vam_mpm": round(vel_mpm, 2),
                 "vam_ms": round(vel_ms, 2),
@@ -932,6 +945,8 @@ def get_velocity_dashboard(
                     "vam_ms": round(vel_ms, 2),
                     "vam_mpm_formatted": best_test_data["vam_mpm_formatted"],
                 },
+                "preferred_speed_test_id": athlete.preferred_speed_test_id,
+                "speed_test_reference_id": reference_speed_test.id,
             }
 
         best_test = get_best_vam_test(tests)
@@ -968,13 +983,16 @@ def get_velocity_dashboard(
 
         best_30_15_test = max((test for test in tests if test.test_type == "test_30_15_ift"), key=lambda test: (test.vam_kmh, test.date), default=None)
         best_yoyo_test = max((test for test in tests if test.test_type == "yoyo_ri1"), key=lambda test: (test.vam_kmh, test.date), default=None)
-        best_speed_test = query_best_speed_test(db, athlete_id)
 
         interval_tables = {
             "from_vam": vam_calculator.calculate_interval_table(best_vam_source_test.vam_kmh, "vam") if best_vam_source_test else None,
             "from_30_15": vam_calculator.calculate_interval_table(best_30_15_test.vam_kmh, "30_15") if best_30_15_test else None,
             "from_yoyo": vam_calculator.calculate_interval_table(best_yoyo_test.vam_kmh, "yoyo") if best_yoyo_test else None,
-            "from_speed_test": vam_calculator.calculate_interval_table(best_speed_test.vel_kmh, "speed_test") if best_speed_test else None,
+            "from_speed_test": (
+                vam_calculator.calculate_interval_table(reference_speed_test.vel_kmh, "speed_test")
+                if reference_speed_test
+                else None
+            ),
         }
 
         sprint_reference = vam_calculator.calculate_sprint_times(best_test.vam_ms)
@@ -995,6 +1013,8 @@ def get_velocity_dashboard(
             "interval_tables": interval_tables,
             "sprint_reference": sprint_reference,
             "unit_conversions": unit_conversions,
+            "preferred_speed_test_id": athlete.preferred_speed_test_id,
+            "speed_test_reference_id": reference_speed_test.id if reference_speed_test else None,
         }
     except HTTPException:
         raise
@@ -1034,6 +1054,218 @@ def get_best_speed_test(tests: list[models.SpeedTest]) -> models.SpeedTest:
     return max(tests, key=lambda test: (test.vel_kmh, test.date))
 
 
+def query_best_30_15_test(db: Session, athlete_id: int) -> models.VamTest | None:
+    """Return the best 30-15 IFT test (highest vam_kmh) for an athlete, or None."""
+    tests = (
+        db.query(models.VamTest)
+        .filter(
+            models.VamTest.athlete_id == athlete_id,
+            models.VamTest.test_type == "test_30_15_ift",
+        )
+        .all()
+    )
+    if not tests:
+        return None
+    return max(tests, key=lambda test: (test.vam_kmh, test.date))
+
+
+@app.get("/athletes/{athlete_id}/asr", response_model=schemas.AsrResponse)
+def get_athlete_asr(
+    athlete_id: int,
+    pct_mss: float = Query(default=80, gt=0),
+    pct_srr: float = Query(default=60),
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """
+    ASR = MSS - IFT, with dual comparative entry by %MSS and %SRR.
+    Returns 200 with `missing` when speed test and/or 30-15 IFT are absent.
+    """
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    best_speed_test = query_best_speed_test(db, athlete_id)
+    best_30_15_test = query_best_30_15_test(db, athlete_id)
+
+    missing: list[str] = []
+    if not best_speed_test:
+        missing.append("speed_test")
+    if not best_30_15_test:
+        missing.append("test_30_15_ift")
+
+    if missing:
+        return {
+            "athlete_id": athlete_id,
+            "missing": missing,
+            "mss_kmh": None,
+            "ift_kmh": None,
+            "asr_kmh": None,
+            "comparativa_por_mss": None,
+            "comparativa_por_srr": None,
+        }
+
+    mss_kmh = best_speed_test.vel_kmh
+    ift_kmh = best_30_15_test.vam_kmh
+
+    try:
+        asr_kmh = asr_calculator.calculate_asr(mss_kmh, ift_kmh)
+        from_mss = asr_calculator.calculate_from_pct_mss(mss_kmh, ift_kmh, asr_kmh, pct_mss)
+        from_srr = asr_calculator.calculate_from_pct_srr(mss_kmh, ift_kmh, asr_kmh, pct_srr)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "athlete_id": athlete_id,
+        "missing": [],
+        "mss_kmh": mss_kmh,
+        "ift_kmh": ift_kmh,
+        "asr_kmh": asr_kmh,
+        "comparativa_por_mss": {
+            "pct_mss": pct_mss,
+            "velocidad_kmh": from_mss["velocidad_kmh"],
+            "srr_pct": from_mss["srr_pct"],
+        },
+        "comparativa_por_srr": {
+            "pct_srr": pct_srr,
+            "velocidad_kmh": from_srr["velocidad_kmh"],
+            "mmss_pct": from_srr["mmss_pct"],
+        },
+    }
+
+
+def build_national_table_row(athlete: models.Athlete, db: Session, pct_srr: float) -> dict:
+    """Build one National-table row for an athlete (complete or missing)."""
+    best_speed_test = query_best_speed_test(db, athlete.id)
+    best_30_15_test = query_best_30_15_test(db, athlete.id)
+
+    missing: list[str] = []
+    if not best_speed_test:
+        missing.append("speed_test")
+    if not best_30_15_test:
+        missing.append("test_30_15_ift")
+
+    if missing:
+        return {
+            "athlete_id": athlete.id,
+            "nombre": athlete.name,
+            "missing": missing,
+            "ift_kmh": None,
+            "mmss_kmh": None,
+            "asr_kmh": None,
+            "velocidad_referencia_kmh": None,
+            "pct_srr": None,
+        }
+
+    mss_kmh = best_speed_test.vel_kmh
+    ift_kmh = best_30_15_test.vam_kmh
+    asr_kmh = asr_calculator.calculate_asr(mss_kmh, ift_kmh)
+    from_srr = asr_calculator.calculate_from_pct_srr(mss_kmh, ift_kmh, asr_kmh, pct_srr)
+
+    return {
+        "athlete_id": athlete.id,
+        "nombre": athlete.name,
+        "missing": [],
+        "ift_kmh": ift_kmh,
+        "mmss_kmh": mss_kmh,
+        "asr_kmh": asr_kmh,
+        "velocidad_referencia_kmh": from_srr["velocidad_kmh"],
+        "pct_srr": pct_srr,
+    }
+
+
+@app.get("/national-table", response_model=schemas.NationalTableResponse)
+def get_national_table(
+    pct_srr: float = Query(default=60),
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """
+    Tabla Nacional del plantel del coach (no hay entidad Team en el modelo:
+    el 'equipo' son todos los atletas con coach_id = usuario actual).
+    """
+    athletes = (
+        db.query(models.Athlete)
+        .filter(models.Athlete.coach_id == current_user)
+        .order_by(models.Athlete.name.asc())
+        .all()
+    )
+
+    try:
+        rows = [build_national_table_row(athlete, db, pct_srr) for athlete in athletes]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "pct_srr": pct_srr,
+        "athletes": rows,
+    }
+
+
+@app.get("/national-table/groups", response_model=schemas.NationalTableGroupsResponse)
+def get_national_table_groups(
+    pct_srr: float = Query(default=60),
+    cantidad_grupos: int = Query(default=3, ge=1),
+    diferencia_pct: float = Query(default=5, ge=0),
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """Tabla Nacional + agrupamiento por velocidad de referencia al %SRR."""
+    athletes = (
+        db.query(models.Athlete)
+        .filter(models.Athlete.coach_id == current_user)
+        .order_by(models.Athlete.name.asc())
+        .all()
+    )
+
+    try:
+        rows = [build_national_table_row(athlete, db, pct_srr) for athlete in athletes]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    complete = [row for row in rows if not row["missing"]]
+    sin_datos = [row for row in rows if row["missing"]]
+
+    groupable = [
+        {
+            "id": row["athlete_id"],
+            "nombre": row["nombre"],
+            "velocidad_referencia": row["velocidad_referencia_kmh"],
+        }
+        for row in complete
+    ]
+
+    try:
+        raw_groups = team_grouping.group_athletes(groupable, cantidad_grupos, diferencia_pct)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    groups = []
+    for index, group in enumerate(raw_groups, start=1):
+        techo = group[0]["velocidad_referencia"] if group else 0.0
+        groups.append({
+            "grupo": index,
+            "techo_kmh": techo,
+            "athletes": [
+                {
+                    "athlete_id": athlete["id"],
+                    "nombre": athlete["nombre"],
+                    "velocidad_referencia_kmh": athlete["velocidad_referencia"],
+                }
+                for athlete in group
+            ],
+        })
+
+    return {
+        "pct_srr": pct_srr,
+        "cantidad_grupos": cantidad_grupos,
+        "diferencia_pct": diferencia_pct,
+        "athletes": rows,
+        "groups": groups,
+        "sin_datos": sin_datos,
+    }
+
+
 def query_best_speed_test(db: Session, athlete_id: int) -> models.SpeedTest | None:
     """Return the speed test with highest vel_kmh for an athlete, or None."""
     tests = (
@@ -1044,6 +1276,71 @@ def query_best_speed_test(db: Session, athlete_id: int) -> models.SpeedTest | No
     if not tests:
         return None
     return get_best_speed_test(tests)
+
+
+def resolve_speed_test_for_intervals(
+    db: Session, athlete: models.Athlete
+) -> models.SpeedTest | None:
+    """
+    SpeedTest usado para Tempo/RST/SIT en velocity-dashboard.
+    Si hay preferred_speed_test_id válido del atleta, usa ese; si no, el más veloz.
+    """
+    if athlete.preferred_speed_test_id is not None:
+        preferred = (
+            db.query(models.SpeedTest)
+            .filter(
+                models.SpeedTest.id == athlete.preferred_speed_test_id,
+                models.SpeedTest.athlete_id == athlete.id,
+            )
+            .first()
+        )
+        if preferred is not None:
+            return preferred
+    return query_best_speed_test(db, athlete.id)
+
+
+@app.put(
+    "/athletes/{athlete_id}/preferred-speed-test",
+    response_model=schemas.PreferredSpeedTestResponse,
+)
+def set_preferred_speed_test(
+    athlete_id: int,
+    payload: schemas.PreferredSpeedTestUpdate,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """Fija (o limpia) el SpeedTest de referencia persistente para Tempo/RST/SIT."""
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if payload.speed_test_id is None:
+        athlete.preferred_speed_test_id = None
+        db.commit()
+        db.refresh(athlete)
+        return {
+            "athlete_id": athlete_id,
+            "preferred_speed_test_id": None,
+        }
+
+    speed_test = (
+        db.query(models.SpeedTest)
+        .filter(models.SpeedTest.id == payload.speed_test_id)
+        .first()
+    )
+    if speed_test is None or speed_test.athlete_id != athlete_id:
+        raise HTTPException(
+            status_code=400,
+            detail="speed_test_id no pertenece a este atleta",
+        )
+
+    athlete.preferred_speed_test_id = payload.speed_test_id
+    db.commit()
+    db.refresh(athlete)
+    return {
+        "athlete_id": athlete_id,
+        "preferred_speed_test_id": athlete.preferred_speed_test_id,
+    }
 
 
 @app.post("/speed-tests", response_model=schemas.SpeedTestResponse)
@@ -1123,6 +1420,26 @@ def get_rsa_sprint_times(db: Session, test_id: int) -> list[float]:
 
 
 def build_rsa_fatigue_test_response(db: Session, test: models.RsaFatigueTest) -> dict:
+    tiempo_medio = (
+        round(test.tiempo_total / test.cantidad_sprints, 2)
+        if test.cantidad_sprints > 0
+        else 0.0
+    )
+
+    velocidad_mejor_kmh = None
+    velocidad_peor_kmh = None
+    velocidad_media_kmh = None
+    if test.distancia_sprint_m is not None:
+        speeds = rsa_calculator.calculate_rsa_speeds_kmh(
+            test.distancia_sprint_m,
+            test.mejor_tiempo,
+            test.peor_tiempo,
+            tiempo_medio,
+        )
+        velocidad_mejor_kmh = speeds["velocidad_mejor_kmh"]
+        velocidad_peor_kmh = speeds["velocidad_peor_kmh"]
+        velocidad_media_kmh = speeds["velocidad_media_kmh"]
+
     return {
         "id": test.id,
         "athlete_id": test.athlete_id,
@@ -1135,9 +1452,13 @@ def build_rsa_fatigue_test_response(db: Session, test: models.RsaFatigueTest) ->
         "mejor_tiempo": test.mejor_tiempo,
         "peor_tiempo": test.peor_tiempo,
         "tiempo_total": test.tiempo_total,
+        "tiempo_medio": tiempo_medio,
         "tiempo_ideal": test.tiempo_ideal,
         "indice_fatiga_pct": test.indice_fatiga_pct,
         "categoria": test.categoria,
+        "velocidad_mejor_kmh": velocidad_mejor_kmh,
+        "velocidad_peor_kmh": velocidad_peor_kmh,
+        "velocidad_media_kmh": velocidad_media_kmh,
     }
 
 

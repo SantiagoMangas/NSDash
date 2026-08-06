@@ -87,18 +87,23 @@ export default function VelocityPage() {
     loadDashboard();
   }, [selectedAthleteId]);
 
-  const referenceTable =
+  const hiitReferenceTable =
     dashboard?.interval_tables.from_vam ??
     dashboard?.interval_tables.from_30_15 ??
     dashboard?.interval_tables.from_yoyo ??
     null;
 
-  const speedTestTable = dashboard?.interval_tables.from_speed_test ?? null;
+  const masReferenceTable =
+    dashboard?.interval_tables.from_30_15 ??
+    dashboard?.interval_tables.from_yoyo ??
+    dashboard?.interval_tables.from_vam ??
+    null;
 
-  const vamReferenceKmh = referenceTable?.reference_kmh ?? null;
+  const speedTestTable = dashboard?.interval_tables.from_speed_test ?? null;
   const speedReferenceKmh = speedTestTable?.reference_kmh ?? null;
 
-  const hasAnyTest = referenceTable !== null || speedTestTable !== null;
+  const hasAnyTest =
+    hiitReferenceTable !== null || masReferenceTable !== null || speedTestTable !== null;
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
@@ -196,9 +201,9 @@ export default function VelocityPage() {
             <div className="space-y-8">
               {hasAnyTest ? (
                 <RecommendedTrainingCards
-                  vamReferenceKmh={vamReferenceKmh}
+                  hiitIntervalTable={hiitReferenceTable}
+                  masIntervalTable={masReferenceTable}
                   speedReferenceKmh={speedReferenceKmh}
-                  intervalTable={referenceTable}
                   speedTestTable={speedTestTable}
                 />
               ) : null}

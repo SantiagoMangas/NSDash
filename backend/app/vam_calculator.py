@@ -101,10 +101,10 @@ def calculate_sprint_times(vam_ms: float) -> list[dict]:
 
 
 YOYO_RI1_TABLE = {
-    5: 11.0, 6: 11.5, 7: 12.0, 8: 12.5, 9: 13.0, 10: 13.5,
-    11: 14.0, 12: 14.5, 13: 15.0, 14: 15.5, 15: 16.0, 16: 16.5,
-    17: 17.0, 18: 17.5, 19: 18.0, 20: 18.5, 21: 19.0, 22: 19.5,
-    23: 20.0, 24: 20.5, 25: 21.0
+    5: 10.0, 9: 12.0, 11: 13.0, 12: 13.5, 13: 14.0, 14: 14.5,
+    15: 15.0, 16: 15.5, 17: 16.0, 18: 16.5, 19: 17.0, 20: 17.5,
+    21: 18.0, 22: 18.5, 23: 19.0, 24: 19.5, 25: 20.0, 26: 20.5,
+    27: 21.0, 28: 21.5, 29: 22.0, 30: 22.5
 }
 
 
@@ -120,23 +120,9 @@ def _format_pace_from_kmh(vel_kmh: float) -> str:
     return f"{minutes}:{seconds:02d}"
 
 
-def _get_yoyo_reference_speed(vam_kmh: float) -> float:
-    level = math.floor(vam_kmh)
-    if level in YOYO_RI1_TABLE:
-        return YOYO_RI1_TABLE[level]
-
-    lower_levels = [lvl for lvl in YOYO_RI1_TABLE.keys() if lvl < level]
-    if lower_levels:
-        return YOYO_RI1_TABLE[max(lower_levels)]
-
-    return vam_kmh
-
-
 def calculate_interval_table(vam_kmh: float, source: str) -> dict:
     source = source.lower()
     reference_kmh = vam_kmh
-    if source == "yoyo":
-        reference_kmh = _get_yoyo_reference_speed(vam_kmh)
 
     if source == "speed_test":
         tr_extensivo_pcts = [70, 80]

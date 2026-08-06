@@ -1,5 +1,14 @@
 import { get, post } from "@/lib/api/client";
 
+export type YoyoLevel = {
+  nivel: number;
+  velocidad_kmh: number;
+};
+
+export async function getYoyoLevels(): Promise<YoyoLevel[]> {
+  return get("/reference/yoyo-levels", { cache: "no-store" });
+}
+
 export async function getVamTests(athleteId: number): Promise<any> {
   return get(`/athletes/${athleteId}/vam-tests`, { cache: "no-store" });
 }

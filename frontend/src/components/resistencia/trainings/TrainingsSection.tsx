@@ -4,25 +4,42 @@ import { TrainingTablesSection } from "@/components/speed/TrainingTablesSection"
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import type { VelocityDashboard } from "@/lib/types";
 import { RecommendedTrainingCards } from "./RecommendedTrainingCards";
+import { SpeedTestReferenceSelector } from "./SpeedTestReferenceSelector";
 
 type Props = {
+  athleteId: number;
   dashboard: VelocityDashboard | null;
   loading: boolean;
+  refreshKey?: number;
+  onDashboardRefresh: () => Promise<void>;
 };
 
-export function TrainingsSection({ dashboard, loading }: Props) {
-  const referenceTable =
+export function TrainingsSection({
+  athleteId,
+  dashboard,
+  loading,
+  refreshKey = 0,
+  onDashboardRefresh,
+}: Props) {
+  // HIIT / HIIT Continuos: VAM → 30-15 → Yo-Yo
+  const hiitReferenceTable =
     dashboard?.interval_tables.from_vam ??
     dashboard?.interval_tables.from_30_15 ??
     dashboard?.interval_tables.from_yoyo ??
     null;
 
-  const speedTestTable = dashboard?.interval_tables.from_speed_test ?? null;
+  // MAS Training: 30-15 → Yo-Yo → VAM
+  const masReferenceTable =
+    dashboard?.interval_tables.from_30_15 ??
+    dashboard?.interval_tables.from_yoyo ??
+    dashboard?.interval_tables.from_vam ??
+    null;
 
-  const vamReferenceKmh = referenceTable?.reference_kmh ?? null;
+  const speedTestTable = dashboard?.interval_tables.from_speed_test ?? null;
   const speedReferenceKmh = speedTestTable?.reference_kmh ?? null;
 
-  const hasAnyTest = referenceTable !== null || speedTestTable !== null;
+  const hasAnyTest =
+    hiitReferenceTable !== null || masReferenceTable !== null || speedTestTable !== null;
 
   return (
     <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
@@ -42,10 +59,19 @@ export function TrainingsSection({ dashboard, loading }: Props) {
       ) : (
         <div className="space-y-8">
           <RecommendedTrainingCards
-            vamReferenceKmh={vamReferenceKmh}
+            hiitIntervalTable={hiitReferenceTable}
+            masIntervalTable={masReferenceTable}
             speedReferenceKmh={speedReferenceKmh}
-            intervalTable={referenceTable}
             speedTestTable={speedTestTable}
+            beforeSpeedCards={
+              <SpeedTestReferenceSelector
+                athleteId={athleteId}
+                preferredSpeedTestId={dashboard.preferred_speed_test_id}
+                speedTestReferenceId={dashboard.speed_test_reference_id}
+                refreshKey={refreshKey}
+                onUpdated={onDashboardRefresh}
+              />
+            }
           />
           <TrainingTablesSection intervalTables={dashboard.interval_tables} />
         </div>

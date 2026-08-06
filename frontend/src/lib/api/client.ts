@@ -94,6 +94,18 @@ export async function patch<T>(
   });
 }
 
+export async function put<T>(
+  endpoint: string,
+  body?: any,
+  options?: Omit<RequestOptions, "method" | "body">,
+): Promise<T> {
+  return request<T>(endpoint, {
+    ...options,
+    method: "PUT",
+    body: body ? JSON.stringify(body) : undefined,
+  });
+}
+
 export async function del<T>(
   endpoint: string,
   options?: Omit<RequestOptions, "method" | "body">,

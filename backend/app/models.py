@@ -23,6 +23,9 @@ class Athlete(Base):
     body_weight_kg = Column(Float, nullable=True)
     goal = Column(String(500), nullable=True)
     notes = Column(Text, nullable=True)
+    # Null = usar el SpeedTest más veloz (automático).
+    # Sin FK en SQLAlchemy para evitar ciclo athletes ↔ speed_tests; la pertenencia se valida en el endpoint.
+    preferred_speed_test_id = Column(Integer, nullable=True)
 
 
 class Exercise(Base):

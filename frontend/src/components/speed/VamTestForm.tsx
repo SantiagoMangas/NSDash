@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { createVamTest } from "@/lib/api/vam";
+import { createVamTest, getYoyoLevels } from "@/lib/api/vam";
 
 type VamTestType = "vam_2000m" | "vam_5min" | "test_30_15_ift" | "yoyo_ri1";
 
@@ -23,6 +23,8 @@ interface VamTestResponse {
   vam_ms: number;
   ritmo_str: string;
 }
+
+type YoyoLevelTable = Record<number, number>;
 
 const TEST_TYPES: Array<{ key: VamTestType; label: string }> = [
   { key: "vam_2000m", label: "Test VAM 2000m" },
@@ -53,7 +55,7 @@ const TEST_DESCRIPTIONS: Record<
   yoyo_ri1: {
     title: "Yo-Yo Test RI1 (Intermittent Recovery)",
     description:
-      "Test de ida y vuelta con recuperaciones de 10 seg entre series. Ingresá la velocidad alcanzada en km/h (según el resultado del test o la referencia del preparador): ese valor es la VAM. Podés anotar el nivel alcanzado como referencia; no se usa en el cálculo.",
+      "Test de ida y vuelta con recuperaciones de 10 seg entre series. El nivel alcanzado autocompleta la velocidad según la tabla oficial; podés corregirla manualmente si hace falta. La VAM se calcula con la velocidad en km/h.",
   },
 };
 
@@ -67,7 +69,7 @@ function buildFieldLabels(testType: VamTestType) {
       return { value1: "Velocidad final (km/h)", value2: null };
     case "yoyo_ri1":
       return {
-        value1: "Nivel alcanzado (solo referencia, no afecta el cálculo)",
+        value1: "Nivel alcanzado",
         value2: "Velocidad alcanzada (km/h)",
       };
   }
@@ -117,6 +119,7 @@ export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = fa
   const [success, setSuccess] = useState<string | null>(null);
   const [createdTest, setCreatedTest] = useState<VamTestResponse | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [yoyoTable, setYoyoTable] = useState<YoyoLevelTable | null>(null);
   const successTimeoutRef = useRef<number | null>(null);
 
   const fieldLabels = useMemo(() => buildFieldLabels(testType), [testType]);
@@ -135,6 +138,40 @@ export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = fa
     [testType, parsedValue1, parsedValue2],
   );
 
+  useEffect(() => {
+    if (testType !== "yoyo_ri1" || !isAuthenticated || yoyoTable) {
+      return;
+    }
+
+    let cancelled = false;
+
+    getYoyoLevels()
+      .then((levels) => {
+        if (cancelled) return;
+        const table: YoyoLevelTable = {};
+        for (const item of levels) {
+          table[item.nivel] = item.velocidad_kmh;
+        }
+        setYoyoTable(table);
+      })
+      .catch(() => {
+        /* Si falla, el usuario puede cargar la velocidad a mano */
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [testType, isAuthenticated, yoyoTable]);
+
+  useEffect(() => {
+    if (testType !== "yoyo_ri1" || !yoyoTable) return;
+    if (!Number.isFinite(parsedValue1) || !Number.isInteger(parsedValue1)) return;
+
+    const speed = yoyoTable[parsedValue1];
+    if (speed === undefined) return;
+
+    setValue2(String(speed));
+  }, [testType, parsedValue1, yoyoTable]);
 
   useEffect(() => {
     return () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getVelocityDashboard } from "@/lib/api/speed";
 import { getVamProgress } from "@/lib/api/vam";
 import type { VelocityDashboard, VamProgress } from "@/lib/types";
@@ -10,6 +10,7 @@ type ResistenciaDataState = {
   progress: VamProgress | null;
   loading: boolean;
   error: string | null;
+  refreshDashboard: () => Promise<void>;
 };
 
 export function useResistenciaData(
@@ -20,6 +21,17 @@ export function useResistenciaData(
   const [progress, setProgress] = useState<VamProgress | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const refreshDashboard = useCallback(async () => {
+    if (athleteId === null) return;
+
+    try {
+      const nextDashboard = (await getVelocityDashboard(athleteId)) as VelocityDashboard;
+      setDashboard(nextDashboard);
+    } catch {
+      /* keep current dashboard on refresh failure */
+    }
+  }, [athleteId]);
 
   useEffect(() => {
     if (athleteId === null) {
@@ -77,5 +89,5 @@ export function useResistenciaData(
     };
   }, [athleteId, refreshKey]);
 
-  return { dashboard, progress, loading, error };
+  return { dashboard, progress, loading, error, refreshDashboard };
 }

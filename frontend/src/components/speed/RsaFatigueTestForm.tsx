@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRsaFatigueTest } from "@/lib/api/speed";
 import { parseApiError } from "@/lib/utils";
+import { RsaFatiguePreviewCard } from "@/components/speed/RsaFatiguePreviewCard";
 
 interface Props {
   athleteId: number | null;
@@ -29,6 +30,10 @@ interface RsaFatigueTestResponse extends RsaFatiguePreview {
   distancia_sprint_m: number | null;
   pausa_s: number | null;
   notes: string | null;
+  tiempo_medio: number;
+  velocidad_mejor_kmh: number | null;
+  velocidad_peor_kmh: number | null;
+  velocidad_media_kmh: number | null;
 }
 
 const DESCRIPTION = {
@@ -111,6 +116,7 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [createdTest, setCreatedTest] = useState<RsaFatigueTestResponse | null>(null);
+  const [showResultCard, setShowResultCard] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const successTimeoutRef = useRef<number | null>(null);
 
@@ -163,6 +169,7 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
     setError(null);
     setSuccess(null);
     setCreatedTest(null);
+    setShowResultCard(false);
 
     if (!athleteId) {
       setError("Seleccioná un atleta antes de registrar un test RSA.");
@@ -350,16 +357,29 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
       )}
 
       {createdTest && (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 space-y-1">
-          <p className="font-medium text-slate-900">Resultado del test registrado</p>
-          <p>Fecha: {createdTest.date}</p>
-          <p>Sprints: {createdTest.cantidad_sprints}</p>
-          <p>Mejor tiempo: {createdTest.mejor_tiempo.toFixed(2)} s</p>
-          <p>Peor tiempo: {createdTest.peor_tiempo.toFixed(2)} s</p>
-          <p>Tiempo total: {createdTest.tiempo_total.toFixed(2)} s</p>
-          <p>Tiempo ideal: {createdTest.tiempo_ideal.toFixed(2)} s</p>
-          <p>Índice de fatiga: {createdTest.indice_fatiga_pct.toFixed(2)}%</p>
-          <p>Categoría: {createdTest.categoria}</p>
+        <div className="space-y-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 space-y-1">
+            <p className="font-medium text-slate-900">Resultado del test registrado</p>
+            <p>Fecha: {createdTest.date}</p>
+            <p>Sprints: {createdTest.cantidad_sprints}</p>
+            <p>Mejor tiempo: {createdTest.mejor_tiempo.toFixed(2)} s</p>
+            <p>Peor tiempo: {createdTest.peor_tiempo.toFixed(2)} s</p>
+            <p>Tiempo medio: {createdTest.tiempo_medio.toFixed(2)} s</p>
+            <p>Tiempo total: {createdTest.tiempo_total.toFixed(2)} s</p>
+            <p>Tiempo ideal: {createdTest.tiempo_ideal.toFixed(2)} s</p>
+            <p>Índice de fatiga: {createdTest.indice_fatiga_pct.toFixed(2)}%</p>
+            <p>Categoría: {createdTest.categoria}</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowResultCard((prev) => !prev)}
+            className="inline-flex items-center justify-center rounded-2xl border border-indigo-200 bg-indigo-50 px-5 py-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
+          >
+            {showResultCard ? "Ocultar vista previa" : "Vista previa"}
+          </button>
+
+          {showResultCard ? <RsaFatiguePreviewCard test={createdTest} /> : null}
         </div>
       )}
     </form>

@@ -122,6 +122,8 @@ export type VelocityDashboard = {
     vam_ms: number;
     vam_mpm_formatted: string;
   };
+  preferred_speed_test_id: number | null;
+  speed_test_reference_id: number | null;
 };
 
 export type VamProgressPoint = {
