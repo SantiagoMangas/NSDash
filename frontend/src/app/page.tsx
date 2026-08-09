@@ -19,7 +19,7 @@ import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import { ToastContainer } from "@/components/ui/Toast";
 import { useToasts } from "@/hooks/useToasts";
-import { DATE_RANGE_OPTIONS, EXERCISES, SPRINT_DISTANCES } from "@/lib/constants";
+import { DATE_RANGE_OPTIONS, SPRINT_DISTANCES } from "@/lib/constants";
 import { filterLogsByDateRange, parseApiError } from "@/lib/utils";
 import {
   formatChartDate,
@@ -55,10 +55,12 @@ import { login } from "@/lib/api/auth";
 import { getAthletes, createAthlete, deleteAthlete } from "@/lib/api/athletes";
 import {
   getAllLogs,
+  getExercises,
   getProgress,
   getSummary,
   createTrainingLog,
   deleteTrainingLog,
+  type Exercise,
 } from "@/lib/api/strength";
 import {
   getSprintLogs,
@@ -317,6 +319,8 @@ export default function Home() {
 
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [isLoadingAthletes, setIsLoadingAthletes] = useState(false);
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [isLoadingExercises, setIsLoadingExercises] = useState(false);
   const [selectedAthleteId, setSelectedAthleteId] = useState<number | null>(null);
   const [selectedExerciseId, setSelectedExerciseId] = useState<number | null>(
     () => readStoredExerciseId(),
@@ -364,7 +368,7 @@ export default function Home() {
   const weightInputRef = useRef<HTMLInputElement | null>(null);
   const safeAthletes = Array.isArray(athletes) ? athletes : [];
   const selectedAthlete = safeAthletes.find((a) => a.id === selectedAthleteId) ?? null;
-  const selectedExercise = EXERCISES.find((e) => e.id === selectedExerciseId) ?? null;
+  const selectedExercise = exercises.find((e) => e.id === selectedExerciseId) ?? null;
 
   // ─── Token init ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -380,6 +384,26 @@ export default function Home() {
       .then(setAthletes)
       .finally(() => setIsLoadingAthletes(false));
   }, [token]);
+
+  // ─── Load exercises ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!token) return;
+    setIsLoadingExercises(true);
+    getExercises()
+      .then(setExercises)
+      .catch(() => setExercises([]))
+      .finally(() => setIsLoadingExercises(false));
+  }, [token]);
+
+  useEffect(() => {
+    if (exercises.length === 0) return;
+    if (
+      selectedExerciseId !== null &&
+      !exercises.some((exercise) => exercise.id === selectedExerciseId)
+    ) {
+      setSelectedExerciseId(null);
+    }
+  }, [exercises, selectedExerciseId]);
 
   // ─── Restaurar atleta persistido (con fallback seguro) ─────────────────────
   useEffect(() => {
@@ -1145,9 +1169,13 @@ export default function Home() {
         {/* ── Exercises ─────────────────────────────────────────────────────── */}
         <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
           <h2 className="text-base font-semibold text-slate-700 mb-4">Ejercicios</h2>
-          {/* [NEW] Pill-style exercise buttons with selection highlight */}
+          {isLoadingExercises ? (
+            <p className="text-sm text-slate-400 animate-pulse">Cargando ejercicios...</p>
+          ) : exercises.length === 0 ? (
+            <p className="text-sm text-slate-400">No hay ejercicios disponibles.</p>
+          ) : (
           <div className="flex flex-wrap gap-2">
-            {EXERCISES.map((exercise) => (
+            {exercises.map((exercise) => (
               <button
                 key={exercise.id}
                 type="button"
@@ -1162,6 +1190,7 @@ export default function Home() {
               </button>
             ))}
           </div>
+          )}
           {selectedAthleteId === null && (
             <p className="text-xs text-slate-400 mt-3">← Seleccioná un atleta primero.</p>
           )}

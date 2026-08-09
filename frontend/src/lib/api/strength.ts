@@ -1,5 +1,22 @@
 import { del, get, patch, post } from "@/lib/api/client";
 
+export type Exercise = {
+  id: number;
+  name: string;
+};
+
+export async function getExercises(): Promise<Exercise[]> {
+  const data = await get("/exercises");
+  if (!Array.isArray(data)) return [];
+  return data.filter(
+    (item): item is Exercise =>
+      item !== null &&
+      typeof item === "object" &&
+      typeof item.id === "number" &&
+      typeof item.name === "string",
+  );
+}
+
 export async function getAllLogs(): Promise<any> {
   return get("/logs");
 }

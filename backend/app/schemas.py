@@ -535,6 +535,30 @@ class UnitConversionResponse(BaseModel):
     ms: float
 
 
+class HiitCortoIntensityResult(BaseModel):
+    velocidad_kmh: float
+    ritmo_str: str
+    trabajo_s: float
+    pausa_s: float
+
+
+class HiitCortoCalculateRequest(BaseModel):
+    reference_kmh: float
+    intensidad_pct_min: float
+    intensidad_pct_max: float
+    distancia_m: float
+    reps: int
+    series: int
+    macro_pausa_min: float
+    ratio: str
+
+
+class HiitCortoCalculateResponse(BaseModel):
+    min: HiitCortoIntensityResult
+    max: HiitCortoIntensityResult
+    volumen_m: int
+
+
 class PreferredSpeedTestUpdate(BaseModel):
     speed_test_id: Optional[int] = None
 

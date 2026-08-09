@@ -8,6 +8,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from . import asr_calculator, auth, models, schemas, rsa_calculator, speed_calculator, team_grouping, vam_calculator
+from .session_calculators import hiit_corto
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
 from .demo_seed import has_demo_data, seed_demo_data, seed_resistencia_demo_data
 
@@ -37,12 +38,26 @@ app.add_middleware(
 )
 
 STRENGTH_EXERCISES = [
-    "Back Squat",
-    "Deadlift",
-    "Bench Press",
-    "Overhead Press",
-    "Hip Thrust",
+    "Sentadilla frontal",
+    "Sentadilla Back",
+    "Sentadilla al Cajon",
+    "Peso muerto",
+    "Peso muerto rumano",
+    "Press Plano - Br",
+    "Press Militar - Br",
+    "Push Press - Br",
+    "Thruster - Br",
+    "Hips Thrust",
 ]
+
+# Renombra ejercicios legacy para conservar registros históricos (mismo exercise_id).
+STRENGTH_EXERCISE_RENAMES: dict[str, str] = {
+    "Back Squat": "Sentadilla Back",
+    "Deadlift": "Peso muerto",
+    "Bench Press": "Press Plano - Br",
+    "Overhead Press": "Press Militar - Br",
+    "Hip Thrust": "Hips Thrust",
+}
 ATHLETE_PROFILE_COLUMNS: dict[str, str] = {
     "sport": "VARCHAR(100)",
     "height_cm": "FLOAT",
@@ -78,6 +93,42 @@ def migrate_athlete_profile_columns() -> None:
                 )
 
 
+def migrate_strength_exercises(db: Session) -> None:
+    changed = False
+    for old_name, new_name in STRENGTH_EXERCISE_RENAMES.items():
+        exercise = (
+            db.query(models.Exercise).filter(models.Exercise.name == old_name).first()
+        )
+        if exercise is None:
+            continue
+        if (
+            db.query(models.Exercise).filter(models.Exercise.name == new_name).first()
+            is not None
+        ):
+            continue
+        exercise.name = new_name
+        changed = True
+
+    existing_names = {exercise.name for exercise in db.query(models.Exercise).all()}
+    missing_names = [name for name in STRENGTH_EXERCISES if name not in existing_names]
+    if missing_names:
+        has_legacy_type = "type" in {
+            column["name"] for column in inspect(engine).get_columns("exercises")
+        }
+        for name in missing_names:
+            if has_legacy_type:
+                db.execute(
+                    text("INSERT INTO exercises (name, type) VALUES (:name, :exercise_type)"),
+                    {"name": name, "exercise_type": "strength"},
+                )
+            else:
+                db.add(models.Exercise(name=name))
+        changed = True
+
+    if changed:
+        db.commit()
+
+
 def build_percentage_table(estimated_rm: float) -> list[dict[str, float | int]]:
     table = []
     for reps, percentage in PERCENTAGE_MAP.items():
@@ -105,23 +156,7 @@ def on_startup() -> None:
                 )
             )
             db.commit()
-        existing_names = {exercise.name for exercise in db.query(models.Exercise).all()}
-        missing_names = [name for name in STRENGTH_EXERCISES if name not in existing_names]
-        if missing_names:
-            has_legacy_type = "type" in {
-                column["name"] for column in inspect(engine).get_columns("exercises")
-            }
-            for name in missing_names:
-                if has_legacy_type:
-                    db.execute(
-                        text(
-                            "INSERT INTO exercises (name, type) VALUES (:name, :exercise_type)"
-                        ),
-                        {"name": name, "exercise_type": "strength"},
-                    )
-                else:
-                    db.add(models.Exercise(name=name))
-            db.commit()
+        migrate_strength_exercises(db)
         if not has_demo_data(db):
             seed_demo_data(db)
         seed_resistencia_demo_data(db)
@@ -278,7 +313,8 @@ def create_exercise() -> None:
 
 @app.get("/exercises", response_model=list[schemas.ExerciseResponse])
 def list_exercises(db: Session = Depends(get_db)) -> list[models.Exercise]:
-    return db.query(models.Exercise).all()
+    by_name = {exercise.name: exercise for exercise in db.query(models.Exercise).all()}
+    return [by_name[name] for name in STRENGTH_EXERCISES if name in by_name]
 
 
 @app.post("/logs", response_model=schemas.TrainingLogResponse)
@@ -1032,6 +1068,30 @@ def post_convert_units(
 ) -> dict[str, float | str]:
     """Convierte entre km/h, m/min y m/s para el picker de la UI."""
     return convert_units(payload.value, payload.from_unit)
+
+
+@app.post(
+    "/training-sessions/hiit-corto/calculate",
+    response_model=schemas.HiitCortoCalculateResponse,
+)
+def post_calculate_hiit_corto(
+    payload: schemas.HiitCortoCalculateRequest,
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """Calcula parámetros de sesión HIIT Corto sin persistencia."""
+    try:
+        return hiit_corto.calculate_hiit_corto(
+            reference_kmh=payload.reference_kmh,
+            intensidad_pct_min=payload.intensidad_pct_min,
+            intensidad_pct_max=payload.intensidad_pct_max,
+            distancia_m=payload.distancia_m,
+            reps=payload.reps,
+            series=payload.series,
+            macro_pausa_min=payload.macro_pausa_min,
+            ratio=payload.ratio,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ─── Speed Test (MSS) Endpoints ─────────────────────────────────

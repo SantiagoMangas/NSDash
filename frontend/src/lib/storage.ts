@@ -1,4 +1,4 @@
-import { EXERCISES, SPRINT_DISTANCES } from "./constants";
+import { SPRINT_DISTANCES } from "./constants";
 import type { DateRange, Module } from "./types";
 
 const PREFIX = "nsdash_";
@@ -68,8 +68,7 @@ export function readStoredExerciseId(): number | null {
   const raw = safeGet(STORAGE_KEYS.exerciseId);
   if (!raw) return null;
   const id = Number.parseInt(raw, 10);
-  if (!Number.isFinite(id) || id <= 0) return null;
-  return EXERCISES.some((e) => e.id === id) ? id : null;
+  return Number.isFinite(id) && id > 0 ? id : null;
 }
 
 export function readStoredSprintDistance(): number | null {
