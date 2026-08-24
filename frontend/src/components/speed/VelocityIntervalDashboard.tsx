@@ -141,13 +141,17 @@ export default function VelocityIntervalDashboard({ table }: Props) {
               <p className="mt-1 text-sm font-semibold text-slate-900">{card.description}</p>
               <div className="mt-5 space-y-3">
                 <div>
-                  <p className="text-xs text-slate-500 uppercase tracking-[0.18em]">Velocidad km/h</p>
+                  <p className="text-xs text-slate-500 tracking-[0.18em]">
+                    Velocidad <span className="normal-case">km/h</span>
+                  </p>
                   <p className="mt-1 text-xl font-semibold text-slate-900">
                     {card.stats.minKmh !== null ? `${card.stats.minKmh.toFixed(2)} - ${card.stats.maxKmh?.toFixed(2)}` : "-"}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500 uppercase tracking-[0.18em]">Ritmo min/km</p>
+                  <p className="text-xs text-slate-500 tracking-[0.18em]">
+                    Ritmo <span className="normal-case">min/km</span>
+                  </p>
                   <p className="mt-1 text-xl font-semibold text-slate-900">
                     {card.stats.minPace && card.stats.maxPace ? `${card.stats.minPace} - ${card.stats.maxPace}` : "-"}
                   </p>
@@ -179,11 +183,15 @@ export default function VelocityIntervalDashboard({ table }: Props) {
                 <div className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${group.header}`}>
                   {group.title}
                 </div>
-                <p className="mt-3 text-sm text-slate-600">Velocidad km/h</p>
+                <p className="mt-3 text-sm text-slate-600">
+                  Velocidad <span className="normal-case">km/h</span>
+                </p>
                 <p className="mt-1 text-xl font-semibold text-slate-900">
                   {stats.minKmh !== null ? `${stats.minKmh.toFixed(2)} - ${stats.maxKmh?.toFixed(2)}` : "-"}
                 </p>
-                <p className="mt-4 text-sm text-slate-600">Ritmo m/km</p>
+                <p className="mt-4 text-sm text-slate-600">
+                  Ritmo <span className="normal-case">min/km</span>
+                </p>
                 <p className="mt-1 text-xl font-semibold text-slate-900">
                   {stats.minPace && stats.maxPace ? `${stats.minPace} - ${stats.maxPace}` : "-"}
                 </p>

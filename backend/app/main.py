@@ -8,7 +8,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from . import asr_calculator, auth, models, schemas, rsa_calculator, speed_calculator, team_grouping, vam_calculator
-from .session_calculators import hiit_corto
+from .session_calculators import hiit_continuo, hiit_corto, hiit_largo, rsa
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
 from .demo_seed import has_demo_data, seed_demo_data, seed_resistencia_demo_data
 
@@ -301,6 +301,45 @@ def get_owned_training_log(
     if not athlete or athlete.coach_id != current_user:
         raise HTTPException(status_code=403, detail="Access denied")
     return log
+
+
+def get_owned_vam_test(
+    test_id: int, db: Session, current_user: int
+) -> models.VamTest:
+    test = db.query(models.VamTest).filter(models.VamTest.id == test_id).first()
+    if test is None:
+        raise HTTPException(status_code=404, detail="VamTest not found")
+
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == test.athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return test
+
+
+def get_owned_speed_test(
+    test_id: int, db: Session, current_user: int
+) -> models.SpeedTest:
+    test = db.query(models.SpeedTest).filter(models.SpeedTest.id == test_id).first()
+    if test is None:
+        raise HTTPException(status_code=404, detail="SpeedTest not found")
+
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == test.athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return test
+
+
+def get_owned_rsa_fatigue_test(
+    test_id: int, db: Session, current_user: int
+) -> models.RsaFatigueTest:
+    test = db.query(models.RsaFatigueTest).filter(models.RsaFatigueTest.id == test_id).first()
+    if test is None:
+        raise HTTPException(status_code=404, detail="RsaFatigueTest not found")
+
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == test.athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return test
 
 
 @app.post("/exercises")
@@ -887,6 +926,18 @@ def get_vam_test(
     }
 
 
+@app.delete("/vam-tests/{test_id}")
+def delete_vam_test(
+    test_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict[str, str]:
+    db_test = get_owned_vam_test(test_id, db, current_user)
+    db.delete(db_test)
+    db.commit()
+    return {"detail": "VamTest deleted"}
+
+
 @app.get("/athletes/{athlete_id}/vam-progress")
 def get_vam_progress(
     athlete_id: int,
@@ -1089,6 +1140,102 @@ def post_calculate_hiit_corto(
             series=payload.series,
             macro_pausa_min=payload.macro_pausa_min,
             ratio=payload.ratio,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post(
+    "/training-sessions/hiit-largo/calculate",
+    response_model=schemas.HiitLargoCalculateResponse,
+)
+def post_calculate_hiit_largo(
+    payload: schemas.HiitLargoCalculateRequest,
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """Calcula parámetros de sesión HIIT Largo sin persistencia."""
+    try:
+        return hiit_largo.calculate_hiit_largo(
+            reference_kmh=payload.reference_kmh,
+            intensidad_pct_min=payload.intensidad_pct_min,
+            intensidad_pct_max=payload.intensidad_pct_max,
+            distancia_m=payload.distancia_m,
+            reps=payload.reps,
+            series=payload.series,
+            macro_pausa_min=payload.macro_pausa_min,
+            ratio=payload.ratio,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post(
+    "/training-sessions/hiit-continuo-largo/calculate",
+    response_model=schemas.HiitContinuoCalculateResponse,
+)
+def post_calculate_hiit_continuo_largo(
+    payload: schemas.HiitContinuoLargoCalculateRequest,
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """Calcula parámetros de sesión HIIT Continuo Largo sin persistencia."""
+    try:
+        return hiit_continuo.calculate_hiit_continuo_largo(
+            reference_kmh=payload.reference_kmh,
+            intensidad_pct_min=payload.intensidad_pct_min,
+            intensidad_pct_max=payload.intensidad_pct_max,
+            trabajo_min=payload.trabajo_min,
+            serie_min=payload.serie_min,
+            bloques=payload.bloques,
+            macro_pausa_min=payload.macro_pausa_min,
+            ratio=payload.ratio,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post(
+    "/training-sessions/hiit-continuo-corto/calculate",
+    response_model=schemas.HiitContinuoCalculateResponse,
+)
+def post_calculate_hiit_continuo_corto(
+    payload: schemas.HiitContinuoCortoCalculateRequest,
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """Calcula parámetros de sesión HIIT Continuo Corto sin persistencia."""
+    try:
+        return hiit_continuo.calculate_hiit_continuo_corto(
+            reference_kmh=payload.reference_kmh,
+            intensidad_pct_min=payload.intensidad_pct_min,
+            intensidad_pct_max=payload.intensidad_pct_max,
+            trabajo_s=payload.trabajo_s,
+            serie_min=payload.serie_min,
+            bloques=payload.bloques,
+            macro_pausa_min=payload.macro_pausa_min,
+            ratio=payload.ratio,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post(
+    "/training-sessions/rsa/calculate",
+    response_model=schemas.RsaCalculateResponse,
+)
+def post_calculate_rsa(
+    payload: schemas.RsaCalculateRequest,
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """Calcula parámetros de sesión RSA/RST/SIT sin persistencia."""
+    try:
+        return rsa.calculate_rsa(
+            reference_kmh=payload.reference_kmh,
+            intensidad_pct_min=payload.intensidad_pct_min,
+            intensidad_pct_max=payload.intensidad_pct_max,
+            distancia_m=payload.distancia_m,
+            reps=payload.reps,
+            series=payload.series,
+            ratio=payload.ratio,
+            entrenamiento=payload.entrenamiento,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1466,6 +1613,24 @@ def list_speed_tests(
     ]
 
 
+@app.delete("/speed-tests/{test_id}")
+def delete_speed_test(
+    test_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict[str, str]:
+    db_test = get_owned_speed_test(test_id, db, current_user)
+    db.query(models.Athlete).filter(
+        models.Athlete.preferred_speed_test_id == test_id
+    ).update(
+        {models.Athlete.preferred_speed_test_id: None},
+        synchronize_session=False,
+    )
+    db.delete(db_test)
+    db.commit()
+    return {"detail": "SpeedTest deleted"}
+
+
 # ─── RSA-IFF Endpoints ──────────────────────────────────────────
 
 
@@ -1599,3 +1764,18 @@ def list_rsa_fatigue_tests(
         }
         for test in tests
     ]
+
+
+@app.delete("/rsa-fatigue-tests/{test_id}")
+def delete_rsa_fatigue_test(
+    test_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict[str, str]:
+    db_test = get_owned_rsa_fatigue_test(test_id, db, current_user)
+    db.query(models.RsaSprintTime).filter(
+        models.RsaSprintTime.rsa_fatigue_test_id == test_id
+    ).delete(synchronize_session=False)
+    db.delete(db_test)
+    db.commit()
+    return {"detail": "RsaFatigueTest deleted"}

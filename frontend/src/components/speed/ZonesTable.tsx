@@ -31,10 +31,10 @@ export default function ZonesTable({ zones }: Props) {
               <th className="px-4 py-3">Zona</th>
               <th className="px-4 py-3">Intensidad</th>
               <th className="px-4 py-3">% VAM</th>
-              <th className="px-4 py-3">Ritmo mín /km</th>
-              <th className="px-4 py-3">Ritmo máx /km</th>
-              <th className="px-4 py-3">Vel mín km/h</th>
-              <th className="px-4 py-3">Vel máx km/h</th>
+              <th className="px-4 py-3">Ritmo mín (min/km)</th>
+              <th className="px-4 py-3">Ritmo máx (min/km)</th>
+              <th className="px-4 py-3">vel. mín (km/h)</th>
+              <th className="px-4 py-3">vel. máx (km/h)</th>
             </tr>
           </thead>
           <tbody>

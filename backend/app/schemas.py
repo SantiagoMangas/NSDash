@@ -559,6 +559,102 @@ class HiitCortoCalculateResponse(BaseModel):
     volumen_m: int
 
 
+class HiitLargoIntensityResult(BaseModel):
+    velocidad_kmh: float
+    ritmo_str: str
+    trabajo_s: float
+    trabajo_str: str
+    pausa_s: float
+    pausa_str: str
+
+
+class HiitLargoCalculateRequest(BaseModel):
+    reference_kmh: float
+    intensidad_pct_min: float
+    intensidad_pct_max: float
+    distancia_m: float
+    reps: int
+    series: int
+    macro_pausa_min: float
+    ratio: str
+
+
+class HiitLargoCalculateResponse(BaseModel):
+    min: HiitLargoIntensityResult
+    max: HiitLargoIntensityResult
+    volumen_m: int
+    densidad_min: float
+
+
+class HiitContinuoIntensityResult(BaseModel):
+    velocidad_kmh: float
+    ritmo_str: str
+    distancia_m: float
+    trabajo_s: float
+    trabajo_str: str
+    pausa_s: float
+    pausa_str: str
+
+
+class HiitContinuoLargoCalculateRequest(BaseModel):
+    reference_kmh: float
+    intensidad_pct_min: float
+    intensidad_pct_max: float
+    trabajo_min: float
+    serie_min: float
+    bloques: int
+    macro_pausa_min: float
+    ratio: str
+
+
+class HiitContinuoCortoCalculateRequest(BaseModel):
+    reference_kmh: float
+    intensidad_pct_min: float
+    intensidad_pct_max: float
+    trabajo_s: float
+    serie_min: float
+    bloques: int
+    macro_pausa_min: float
+    ratio: str
+
+
+class HiitContinuoCalculateResponse(BaseModel):
+    entrenamiento: str
+    min: HiitContinuoIntensityResult
+    max: HiitContinuoIntensityResult
+    serie_min: float
+    densidad_min: float
+    densidad_str: str
+    volumen_serie_m: float
+    volumen_trabajo_m: float
+
+
+class RsaIntensityResult(BaseModel):
+    velocidad_kmh: float
+    ritmo_str: str
+    trabajo_s: float
+    pausa_s: float
+
+
+class RsaCalculateRequest(BaseModel):
+    reference_kmh: float
+    intensidad_pct_min: float
+    intensidad_pct_max: float
+    distancia_m: float
+    reps: int
+    series: int
+    ratio: str
+    entrenamiento: str
+
+
+class RsaCalculateResponse(BaseModel):
+    entrenamiento: str
+    min: RsaIntensityResult
+    max: RsaIntensityResult
+    volumen_serie_m: float
+    volumen_trabajo_m: float
+
+
 class PreferredSpeedTestUpdate(BaseModel):
     speed_test_id: Optional[int] = None
 

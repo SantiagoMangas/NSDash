@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import type { IntervalTable } from "@/lib/types";
+import { IntervalRowsTable } from "@/components/speed/IntervalRowsTable";
+import type { IntervalRow, IntervalTable } from "@/lib/types";
 
 type SourceKey = "vam" | "30_15" | "yoyo";
 
@@ -26,7 +27,7 @@ const MAS_PRIORITY: SourceKey[] = ["30_15", "yoyo", "vam"];
 
 const HIIT_CARDS = [
   {
-    id: "fit_corto",
+    id: "fit_corto" as const,
     title: "HIIT Corto",
     subtitle: "10-30 seg",
     badge: "90 – 110% VAM",
@@ -34,7 +35,7 @@ const HIIT_CARDS = [
     ratio: "1:2 / 1:3 / 1:4",
   },
   {
-    id: "fit_largo",
+    id: "fit_largo" as const,
     title: "HIIT Largo",
     subtitle: "1-4 min",
     badge: "80 – 95% VAM",
@@ -42,7 +43,7 @@ const HIIT_CARDS = [
     ratio: "1:1 / 1:2",
   },
   {
-    id: "mixto",
+    id: "mixto" as const,
     title: "HIIT Mixto",
     subtitle: "30 seg / 3-5 min",
     badge: "85 – 100% VAM",
@@ -94,21 +95,8 @@ function pickDefaultSource(
   return null;
 }
 
-function getStats(rows: Array<{ porcentaje: number; velocidad_kmh: number; ritmo_str: string }>) {
-  if (rows.length === 0) return null;
-
-  const minVel = Math.min(...rows.map((r) => r.velocidad_kmh));
-  const maxVel = Math.max(...rows.map((r) => r.velocidad_kmh));
-
-  const rowWithMaxVel = rows.reduce((a, b) => (b.velocidad_kmh > a.velocidad_kmh ? b : a));
-  const rowWithMinVel = rows.reduce((a, b) => (b.velocidad_kmh < a.velocidad_kmh ? b : a));
-
-  return {
-    vel_min: minVel.toFixed(2),
-    vel_max: maxVel.toFixed(2),
-    ritmo_min: rowWithMaxVel.ritmo_str,
-    ritmo_max: rowWithMinVel.ritmo_str,
-  };
+function filterRowsByTipo(rows: IntervalRow[], tipo: IntervalRow["tipo"]) {
+  return rows.filter((row) => row.tipo === tipo);
 }
 
 function SourceSelector({
@@ -239,12 +227,8 @@ export function TrainingTablesSection({ intervalTables }: Props) {
         >
           <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-200">
             {HIIT_CARDS.map((card) => {
-              const rows =
-                card.id === "mixto"
-                  ? hiitTable.rows.filter((r) => r.tipo === "fit_corto" || r.tipo === "fit_largo")
-                  : hiitTable.rows.filter((r) => r.tipo === (card.id as "fit_corto" | "fit_largo"));
-
-              const stats = getStats(rows);
+              const cortoRows = filterRowsByTipo(hiitTable.rows, "fit_corto");
+              const largoRows = filterRowsByTipo(hiitTable.rows, "fit_largo");
 
               return (
                 <div key={card.id} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
@@ -257,19 +241,28 @@ export function TrainingTablesSection({ intervalTables }: Props) {
                       {card.badge}
                     </span>
                   </div>
-                  <div className="p-4 space-y-3">
-                    <div>
-                      <p className="text-xs text-slate-500 uppercase tracking-wide">Velocidad km/h</p>
-                      <p className="text-sm font-medium text-slate-900 mt-1">
-                        {stats ? `${stats.vel_min} – ${stats.vel_max}` : "-"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500 uppercase tracking-wide">Ritmo /km</p>
-                      <p className="text-sm font-medium text-slate-900 mt-1">
-                        {stats ? `${stats.ritmo_min} – ${stats.ritmo_max}` : "-"}
-                      </p>
-                    </div>
+                  <div className="p-4 space-y-4">
+                    {card.id === "mixto" ? (
+                      <div className="space-y-4">
+                        <IntervalRowsTable
+                          rows={cortoRows}
+                          title="HIIT Corto"
+                          subtitle="10-30 seg · fit_corto"
+                          compact
+                        />
+                        <IntervalRowsTable
+                          rows={largoRows}
+                          title="HIIT Largo"
+                          subtitle="1-4 min · fit_largo"
+                          compact
+                        />
+                      </div>
+                    ) : (
+                      <IntervalRowsTable
+                        rows={card.id === "fit_corto" ? cortoRows : largoRows}
+                        compact
+                      />
+                    )}
                     <div>
                       <p className="text-xs text-slate-500 uppercase tracking-wide">Ratio</p>
                       <p className="text-sm font-medium text-slate-900 mt-1">{card.ratio}</p>
@@ -298,31 +291,24 @@ export function TrainingTablesSection({ intervalTables }: Props) {
           <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-200">
             {MAS_GROUPS.map((group) => {
               const rows = masTable.rows.filter(
-                (r) => r.tipo === "mas_training" && r.porcentaje >= group.range[0] && r.porcentaje <= group.range[1]
+                (r) =>
+                  r.tipo === "mas_training" &&
+                  r.porcentaje >= group.range[0] &&
+                  r.porcentaje <= group.range[1],
               );
 
               if (rows.length === 0) return null;
 
-              const stats = getStats(rows);
-
               return (
-                <div key={`mas-${group.range[0]}`} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                <div
+                  key={`mas-${group.range[0]}`}
+                  className="border border-slate-200 rounded-lg overflow-hidden bg-white"
+                >
                   <div className={`p-4 border-b border-slate-200 ${group.headerBg}`}>
                     <h4 className={`font-semibold ${group.headerText}`}>{group.title}</h4>
                   </div>
-                  <div className="p-4 space-y-3">
-                    <div>
-                      <p className="text-xs text-slate-500 uppercase tracking-wide">Velocidad km/h</p>
-                      <p className="text-sm font-medium text-slate-900 mt-1">
-                        {stats ? `${stats.vel_min} – ${stats.vel_max}` : "-"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500 uppercase tracking-wide">Ritmo /km</p>
-                      <p className="text-sm font-medium text-slate-900 mt-1">
-                        {stats ? `${stats.ritmo_min} – ${stats.ritmo_max}` : "-"}
-                      </p>
-                    </div>
+                  <div className="p-4 space-y-4">
+                    <IntervalRowsTable rows={rows} compact />
                     <div>
                       <p className="text-xs text-slate-500 uppercase tracking-wide">Ratio</p>
                       <p className="text-sm font-medium text-slate-900 mt-1">{group.ratio}</p>

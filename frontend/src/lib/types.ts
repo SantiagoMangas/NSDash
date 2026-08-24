@@ -8,7 +8,7 @@ export type Athlete = {
   notes?: string | null;
 };
 
-export type Module = "strength" | "speed" | "resistencia";
+export type Module = "strength" | "resistencia";
 
 export type DateRange = "7d" | "30d" | "90d" | "all";
 

@@ -141,8 +141,8 @@ export function AvailableMetricsSection({ dashboard, progress, loading, error }:
                     <tr>
                       <th className="px-3 py-2">Zona</th>
                       <th className="px-3 py-2">Intensidad</th>
-                      <th className="px-3 py-2">Vel. km/h</th>
-                      <th className="px-3 py-2">Ritmo /km</th>
+                      <th className="px-3 py-2">vel. (km/h)</th>
+                      <th className="px-3 py-2">Ritmo (min/km)</th>
                     </tr>
                   </thead>
                   <tbody>

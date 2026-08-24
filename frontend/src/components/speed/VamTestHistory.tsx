@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import ZonesTable from "@/components/speed/ZonesTable";
-import { getVamTest, getVamTests } from "@/lib/api/vam";
-import { formatSecondsToPace } from "@/lib/utils";
+import { getVamTest, getVamTests, deleteVamTest } from "@/lib/api/vam";
+import { formatPaceWithUnit } from "@/lib/units";
+import { formatSecondsToPace, parseApiError } from "@/lib/utils";
 import type { VelocityZone } from "@/lib/types";
 
 const TEST_LABELS: Record<string, string> = {
@@ -57,12 +58,21 @@ function mapZones(zones: VamZoneDetail[]): VelocityZone[] {
   }));
 }
 
-export function VamTestHistory({ athleteId, refreshKey }: { athleteId: number | null; refreshKey?: number }) {
+export function VamTestHistory({
+  athleteId,
+  refreshKey,
+  onDeleted,
+}: {
+  athleteId: number | null;
+  refreshKey?: number;
+  onDeleted?: () => void;
+}) {
   const [tests, setTests] = useState<VamTestHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTest, setSelectedTest] = useState<VamTestDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [deletingTestId, setDeletingTestId] = useState<number | null>(null);
 
   useEffect(() => {
     if (athleteId === null) {
@@ -106,6 +116,32 @@ export function VamTestHistory({ athleteId, refreshKey }: { athleteId: number | 
     }
   };
 
+  const handleDelete = async (testId: number) => {
+    if (deletingTestId !== null) return;
+    if (
+      !window.confirm(
+        "¿Eliminar este test VAM? Esta acción no se puede deshacer.",
+      )
+    ) {
+      return;
+    }
+
+    setDeletingTestId(testId);
+    setError(null);
+    try {
+      await deleteVamTest(testId);
+      setTests((prev) => prev.filter((test) => test.id !== testId));
+      if (selectedTest?.id === testId) {
+        setSelectedTest(null);
+      }
+      onDeleted?.();
+    } catch (err) {
+      setError(parseApiError(err, "No se pudo eliminar el test. Intentá de nuevo."));
+    } finally {
+      setDeletingTestId(null);
+    }
+  };
+
   return (
     <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
@@ -137,7 +173,7 @@ export function VamTestHistory({ athleteId, refreshKey }: { athleteId: number | 
                 <th className="px-4 py-3">Fecha</th>
                 <th className="px-4 py-3">Tipo de Test</th>
                 <th className="px-4 py-3">VAM (km/h)</th>
-                <th className="px-4 py-3">Ritmo /km</th>
+                <th className="px-4 py-3">Ritmo (min/km)</th>
                 <th className="px-4 py-3">Acciones</th>
               </tr>
             </thead>
@@ -149,18 +185,28 @@ export function VamTestHistory({ athleteId, refreshKey }: { athleteId: number | 
                     <td className="px-4 py-3">{new Date(test.date).toLocaleDateString("es-AR")}</td>
                     <td className="px-4 py-3">{TEST_LABELS[test.test_type] ?? test.test_type}</td>
                     <td className="px-4 py-3 font-semibold text-slate-900">{test.vam_kmh.toFixed(2)}</td>
-                    <td className="px-4 py-3">{test.ritmo_str}</td>
+                    <td className="px-4 py-3">{formatPaceWithUnit(test.ritmo_str)}</td>
                     <td className="px-4 py-3">
-                      {test.test_type === "vam_2000m" || test.test_type === "vam_5min" ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {test.test_type === "vam_2000m" || test.test_type === "vam_5min" ? (
+                          <button
+                            type="button"
+                            onClick={() => handleShowZones(test.id)}
+                            disabled={detailLoading}
+                            className="rounded-full bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {detailLoading ? "Cargando..." : "Ver zonas"}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
-                          onClick={() => handleShowZones(test.id)}
-                          disabled={detailLoading}
-                          className="rounded-full bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={() => handleDelete(test.id)}
+                          disabled={deletingTestId === test.id}
+                          className="rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {detailLoading ? "Cargando..." : "Ver zonas"}
+                          {deletingTestId === test.id ? "Eliminando..." : "Eliminar"}
                         </button>
-                      ) : null}
+                      </div>
                     </td>
                   </tr>
                 );

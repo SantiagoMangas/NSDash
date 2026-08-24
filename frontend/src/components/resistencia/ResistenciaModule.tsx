@@ -1,6 +1,8 @@
 "use client";
 
 import { VamTestHistory } from "@/components/speed/VamTestHistory";
+import { SpeedTestHistory } from "@/components/speed/SpeedTestHistory";
+import { RsaFatigueTestHistory } from "@/components/speed/RsaFatigueTestHistory";
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { useResistenciaData } from "@/hooks/useResistenciaData";
 import { AsrSection } from "./asr/AsrSection";
@@ -66,7 +68,23 @@ export function ResistenciaModule({
 
           <section>
             <h2 className="text-base font-semibold text-slate-700 mb-4">Historial</h2>
-            <VamTestHistory athleteId={athleteId} refreshKey={historyRefreshKey} />
+            <div className="space-y-6">
+              <VamTestHistory
+                athleteId={athleteId}
+                refreshKey={historyRefreshKey}
+                onDeleted={onEvaluationSuccess}
+              />
+              <SpeedTestHistory
+                athleteId={athleteId}
+                refreshKey={historyRefreshKey}
+                onDeleted={onEvaluationSuccess}
+              />
+              <RsaFatigueTestHistory
+                athleteId={athleteId}
+                refreshKey={historyRefreshKey}
+                onDeleted={onEvaluationSuccess}
+              />
+            </div>
           </section>
         </>
       )}

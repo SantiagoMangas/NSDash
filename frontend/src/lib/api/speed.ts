@@ -1,4 +1,4 @@
-import { get, post, put } from "@/lib/api/client";
+import { del, get, post, put } from "@/lib/api/client";
 
 export async function getSprintLogs(athleteId: number): Promise<any> {
   return get(`/athletes/${athleteId}/sprint-logs`);
@@ -182,4 +182,12 @@ export async function createRsaFatigueTest(
     pausa_s,
     notes,
   });
+}
+
+export async function deleteSpeedTest(testId: number): Promise<{ detail: string }> {
+  return del(`/speed-tests/${testId}`);
+}
+
+export async function deleteRsaFatigueTest(testId: number): Promise<{ detail: string }> {
+  return del(`/rsa-fatigue-tests/${testId}`);
 }

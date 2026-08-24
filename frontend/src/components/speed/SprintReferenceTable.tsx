@@ -20,8 +20,8 @@ export default function SprintReferenceTable({ sprintReference }: Props) {
             <tr>
               <th className="px-4 py-3">Distancia</th>
               <th className="px-4 py-3">Tiempo (seg)</th>
-              <th className="px-4 py-3">Velocidad km/h</th>
-              <th className="px-4 py-3">Velocidad m/s</th>
+              <th className="px-4 py-3">vel. (km/h)</th>
+              <th className="px-4 py-3">vel. (m/s)</th>
             </tr>
           </thead>
           <tbody>

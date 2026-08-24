@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -19,8 +19,8 @@ import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import { ToastContainer } from "@/components/ui/Toast";
 import { useToasts } from "@/hooks/useToasts";
-import { DATE_RANGE_OPTIONS, SPRINT_DISTANCES } from "@/lib/constants";
-import { filterLogsByDateRange, parseApiError } from "@/lib/utils";
+import { DATE_RANGE_OPTIONS } from "@/lib/constants";
+import { parseApiError } from "@/lib/utils";
 import {
   formatChartDate,
   getTodayDate,
@@ -32,13 +32,10 @@ import {
   persistDateRange,
   persistExerciseId,
   persistModule,
-  persistSprintDateRange,
-  persistSprintDistance,
   readStoredAthleteId,
   readStoredDateRange,
   readStoredExerciseId,
   readStoredModule,
-  readStoredSprintDistance,
   STORAGE_KEYS,
   getToken,
   setToken as setTokenStorage,
@@ -46,10 +43,8 @@ import {
 } from "@/lib/storage";
 import type {
   Athlete,
-  CreateSprintResult,
   DateRange,
   Module,
-  SprintLog,
 } from "@/lib/types";
 import { login } from "@/lib/api/auth";
 import { getAthletes, createAthlete, deleteAthlete } from "@/lib/api/athletes";
@@ -62,10 +57,6 @@ import {
   deleteTrainingLog,
   type Exercise,
 } from "@/lib/api/strength";
-import {
-  getSprintLogs,
-  createSprintLog as createSprintLogAPI,
-} from "@/lib/api/speed";
 import { BASE_URL } from "@/lib/api/client";
 
 type RawLog = {
@@ -247,65 +238,6 @@ async function loadSummary(logId: number): Promise<LogSummary | null> {
   }
 }
 
-// [NEW] Sprint tracking API functions
-async function loadSprintLogs(athleteId: number): Promise<SprintLog[]> {
-  try {
-    const data = await getSprintLogs(athleteId);
-    return Array.isArray(data)
-      ? data.filter(
-          (item): item is SprintLog =>
-            item !== null &&
-            typeof item === "object" &&
-            typeof item.id === "number" &&
-            typeof item.athlete_id === "number" &&
-            typeof item.distance === "number" &&
-            typeof item.time_seconds === "number" &&
-            typeof item.date === "string" &&
-            typeof item.average_speed === "number"
-        )
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-async function createSprintLogData(
-  athleteId: number,
-  distance: number,
-  timeSeconds: number,
-  date: string,
-  notes: string | null,
-): Promise<CreateSprintResult> {
-  const fallback = "No se pudo guardar el sprint. Intentá de nuevo.";
-  try {
-    const data = await createSprintLogAPI(athleteId, distance, timeSeconds, date, notes);
-    if (!data || typeof data !== "object") {
-      return { log: null, error: fallback };
-    }
-    return {
-      log: {
-        id: data.id,
-        athlete_id: data.athlete_id,
-        distance: data.distance,
-        time_seconds: data.time_seconds,
-        date: data.date,
-        notes: data.notes || null,
-        average_speed: data.average_speed,
-        pr_time: data.pr_time ?? null,
-        is_pr: Boolean(data.is_pr),
-        improvement_percent: data.improvement_percent ?? null,
-        previous_pr_time: data.previous_pr_time ?? null,
-        fatigue_percent: data.fatigue_percent ?? 0,
-        fatigue_level: data.fatigue_level || "Normal",
-        fatigue_color: data.fatigue_color || "blue",
-      },
-      error: null,
-    };
-  } catch (error) {
-    return { log: null, error: parseApiError(error, fallback) };
-  }
-}
-
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
   const [loginEmail, setLoginEmail] = useState("");
@@ -349,21 +281,7 @@ export default function Home() {
   );
   const [module, setModule] = useState<Module>(() => readStoredModule());
 
-  const [sprintLogs, setSprintLogs] = useState<SprintLog[]>([]);
-  const [isLoadingSprintLogs, setIsLoadingSprintLogs] = useState(false);
-  const [sprintDistance, setSprintDistance] = useState<number | null>(() =>
-    readStoredSprintDistance(),
-  );
-  const [sprintTime, setSprintTime] = useState("");
-  const [sprintDate, setSprintDate] = useState(getTodayDate());
-  const [sprintNotes, setSprintNotes] = useState("");
-  const [isSavingSprint, setIsSavingSprint] = useState(false);
-  const [savingSprintError, setSavingSprintError] = useState<string | null>(null);
-  const [sprintReloadToken, setSprintReloadToken] = useState(0);
   const [vamHistoryRefreshKey, setVamHistoryRefreshKey] = useState(0);
-  const [sprintDateRange, setSprintDateRange] = useState<DateRange>(() =>
-    readStoredDateRange(STORAGE_KEYS.sprintDateRange),
-  );
 
   const weightInputRef = useRef<HTMLInputElement | null>(null);
   const safeAthletes = Array.isArray(athletes) ? athletes : [];
@@ -441,11 +359,6 @@ export default function Home() {
   }, [dateRange]);
 
   useEffect(() => {
-    if (!prefsReadyRef.current) return;
-    persistSprintDateRange(sprintDateRange);
-  }, [sprintDateRange]);
-
-  useEffect(() => {
     if (!prefsReadyRef.current || !athleteHydratedRef.current) return;
     persistAthleteId(selectedAthleteId);
   }, [selectedAthleteId]);
@@ -454,11 +367,6 @@ export default function Home() {
     if (!prefsReadyRef.current) return;
     persistExerciseId(selectedExerciseId);
   }, [selectedExerciseId]);
-
-  useEffect(() => {
-    if (!prefsReadyRef.current) return;
-    persistSprintDistance(sprintDistance);
-  }, [sprintDistance]);
 
   // ─── Load logs ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -510,22 +418,6 @@ export default function Home() {
     };
     loadLogs();
   }, [selectedAthleteId, selectedExerciseId, logsReloadToken]);
-
-  // [NEW] Load sprint logs
-  useEffect(() => {
-    const loadSprintLogsData = async () => {
-      if (selectedAthleteId === null) {
-        setSprintLogs([]);
-        return;
-      }
-      setIsLoadingSprintLogs(true);
-      const logs = await loadSprintLogs(selectedAthleteId);
-      setIsLoadingSprintLogs(false);
-      setSprintLogs(logs.sort((a, b) => b.date.localeCompare(a.date)));
-    };
-    loadSprintLogsData();
-  }, [selectedAthleteId, sprintReloadToken]);
-
 
   // ─── [NEW] Filtered logs based on dateRange ────────────────────────────────
   const filteredLogs = useMemo(() => {
@@ -620,32 +512,6 @@ export default function Home() {
       frequencyInsight,
     };
   }, [filteredLogs, logs]);
-
-  const filteredSprintLogs = useMemo(
-    () => filterLogsByDateRange(sprintLogs, sprintDateRange),
-    [sprintLogs, sprintDateRange],
-  );
-
-  const sprintChartData = useMemo(
-    () =>
-      [...filteredSprintLogs]
-        .sort(
-          (a, b) =>
-            parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime(),
-        )
-        .map((s) => ({
-          date: s.date,
-          average_speed: s.average_speed,
-          distance: s.distance,
-          time_seconds: s.time_seconds,
-        })),
-    [filteredSprintLogs],
-  );
-
-  const handleSelectSprintDistance = useCallback((distance: number) => {
-    setSprintDistance(distance);
-    setModule("speed");
-  }, []);
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
@@ -865,46 +731,6 @@ export default function Home() {
     }
   };
 
-  // [NEW] Handle create sprint log
-  const handleCreateSprintLog = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (isSavingSprint) return;
-    if (selectedAthleteId === null || sprintDistance === null) return;
-
-    const timeVal = Number(sprintTime);
-    if (!Number.isFinite(timeVal) || timeVal <= 0) {
-      setSavingSprintError("Ingresá un tiempo válido mayor a 0 segundos.");
-      return;
-    }
-
-    setIsSavingSprint(true);
-    setSavingSprintError(null);
-    try {
-      const { log, error } = await createSprintLogData(
-        selectedAthleteId,
-        sprintDistance,
-        timeVal,
-        sprintDate,
-        sprintNotes || null,
-      );
-      if (error || !log) {
-        const msg = error ?? "No se pudo guardar el sprint. Intentá de nuevo.";
-        setSavingSprintError(msg);
-        pushToast("error", "Error al guardar");
-        return;
-      }
-      setSprintReloadToken((p) => p + 1);
-      pushToast("success", "Sprint registrado");
-      setSprintTime("");
-      setSprintNotes("");
-    } catch {
-      setSavingSprintError("No se pudo guardar el sprint. Intentá de nuevo.");
-      pushToast("error", "Error al guardar");
-    } finally {
-      setIsSavingSprint(false);
-    }
-  };
-
   // ─── Login screen ──────────────────────────────────────────────────────────
 
   if (!token) {
@@ -1003,16 +829,6 @@ export default function Home() {
             💪 Fuerza
           </button>
           <button
-            onClick={() => setModule("speed")}
-            className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all active:scale-95 ${
-              module === "speed"
-                ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
-                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-            }`}
-          >
-            ⚡ Velocidad
-          </button>
-          <button
             onClick={() => setModule("resistencia")}
             className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all active:scale-95 ${
               module === "resistencia"
@@ -1020,7 +836,7 @@ export default function Home() {
                 : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
             }`}
           >
-            🫁 Resistencia
+            ⚡ Velocidad y Resistencia
           </button>
         </div>
 
@@ -1568,145 +1384,6 @@ export default function Home() {
         )}
           </>
         )}
-
-        {/* [NEW] Speed module wrapper */}
-        {module === "speed" && selectedAthleteId === null ? (
-          <EmptyStateCard
-            icon={
-              <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z" />
-                <path d="M6 20c0-3.31 2.69-6 6-6s6 2.69 6 6" />
-              </svg>
-            }
-            title="Seleccioná un atleta"
-            description="Elegí un atleta arriba para comenzar a registrar sprints y ver el análisis de velocidad."
-          />
-        ) : module === "speed" ? (
-          <div className="space-y-6">
-            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-              <h2 className="text-base font-semibold text-slate-700 mb-1">
-                Nuevo Sprint — <span className="text-indigo-600">{selectedAthlete?.name}</span>
-              </h2>
-              <p className="text-xs text-slate-400 mb-4">Registrá tiempos con distancias estándar de sprint</p>
-              <form onSubmit={handleCreateSprintLog} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="sprint-date" className="block text-xs text-slate-500 mb-2">Fecha</label>
-                    <input
-                      id="sprint-date"
-                      type="date"
-                      value={sprintDate}
-                      onChange={(e) => setSprintDate(e.target.value)}
-                      required
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="sprint-time" className="block text-xs text-slate-500 mb-2">Tiempo (seg)</label>
-                    <input
-                      id="sprint-time"
-                      type="number"
-                      value={sprintTime}
-                      onChange={(e) => setSprintTime(e.target.value)}
-                      required
-                      step="0.01"
-                      min="0.01"
-                      disabled={isSavingSprint}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition disabled:opacity-60 disabled:cursor-not-allowed"
-                    />
-                  </div>
-                </div>
-                
-                {/* [NEW] Distance button selector */}
-                <div>
-                  <label className="block text-xs text-slate-500 mb-2">Distancia</label>
-                  <div className="flex flex-wrap gap-2">
-                    {SPRINT_DISTANCES.map((dist) => (
-                      <button
-                        key={dist}
-                        type="button"
-                        onClick={() => setSprintDistance(dist)}
-                        className={`min-w-[3.5rem] px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 active:scale-[0.97] ${
-                          sprintDistance === dist
-                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-200 ring-2 ring-indigo-300 ring-offset-1"
-                            : "bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 hover:border-slate-300"
-                        }`}
-                      >
-                        {dist}m
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                
-                <div>
-                  <label htmlFor="sprint-notes" className="block text-xs text-slate-500 mb-2">Notas (opcional)</label>
-                  <input
-                    id="sprint-notes"
-                    type="text"
-                    value={sprintNotes}
-                    onChange={(e) => setSprintNotes(e.target.value)}
-                    placeholder="Ej: Sentí fatiga, superficie mojada..."
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-                  />
-                </div>
-                
-                <button
-                  type="submit"
-                  disabled={
-                    isSavingSprint ||
-                    sprintDistance === null ||
-                    !sprintTime ||
-                    Number(sprintTime) <= 0
-                  }
-                  className="w-full px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
-                >
-                  {isSavingSprint ? "Guardando..." : "Guardar Sprint"}
-                </button>
-              </form>
-              {savingSprintError && (
-                <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 transition-all duration-200">
-                  <span className="mt-0.5 shrink-0" aria-hidden>⚠️</span>
-                  <p>{savingSprintError}</p>
-                </div>
-              )}
-            </section>
-
-            {sprintLogs.length === 0 ? (
-              <EmptyStateCard
-                icon={
-                  <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z" />
-                    <path d="M6 20c0-3.31 2.69-6 6-6s6 2.69 6 6" />
-                  </svg>
-                }
-                title="Todavía no hay registros de velocidad"
-                description="Registrá tu primer sprint para comenzar a guardar el historial de velocidad."
-              />
-            ) : (
-              <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wide mb-4">Registro de sprints</h3>
-                <div className="space-y-3">
-                  {sprintLogs.map((log) => (
-                    <div key={log.id} className="border rounded-xl p-4 bg-slate-50">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800">{log.date}</p>
-                          <p className="text-sm text-slate-600">{log.distance}m · {log.time_seconds.toFixed(2)}s</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs text-slate-500">Velocidad media</p>
-                          <p className="text-lg font-semibold text-slate-800">{log.average_speed.toFixed(2)} m/s</p>
-                        </div>
-                      </div>
-                      {log.notes && <p className="mt-3 text-sm text-slate-500 italic">"{log.notes}"</p>}
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-          </div>
-        ) : null}
 
         {module === "resistencia" && (
           <ResistenciaModule

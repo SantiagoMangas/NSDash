@@ -59,8 +59,6 @@ export function TrainingsSection({
       ) : (
         <div className="space-y-8">
           <RecommendedTrainingCards
-            hiitIntervalTable={hiitReferenceTable}
-            masIntervalTable={masReferenceTable}
             speedReferenceKmh={speedReferenceKmh}
             speedTestTable={speedTestTable}
             beforeSpeedCards={

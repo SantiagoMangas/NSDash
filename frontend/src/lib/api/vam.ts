@@ -1,4 +1,4 @@
-import { get, post } from "@/lib/api/client";
+import { del, get, post } from "@/lib/api/client";
 
 export type YoyoLevel = {
   nivel: number;
@@ -37,4 +37,8 @@ export async function createVamTest(
 
 export async function getVamProgress(athleteId: number): Promise<any> {
   return get(`/athletes/${athleteId}/vam-progress`, { cache: "no-store" });
+}
+
+export async function deleteVamTest(testId: number): Promise<{ detail: string }> {
+  return del(`/vam-tests/${testId}`);
 }

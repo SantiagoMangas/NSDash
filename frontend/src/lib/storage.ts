@@ -47,8 +47,7 @@ export function isValidDateRange(value: string | null): value is DateRange {
 
 export function readStoredModule(): Module {
   const value = safeGet(STORAGE_KEYS.module);
-  if (value === "speed") return "speed";
-  if (value === "resistencia") return "resistencia";
+  if (value === "resistencia" || value === "speed") return "resistencia";
   return "strength";
 }
 

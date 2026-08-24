@@ -1,17 +1,5 @@
 import type { IntervalTable as IntervalTableType } from "@/lib/types";
-
-const TYPE_LABELS: Record<string, string> = {
-  fit_corto: "Fit Corto (30s-1min)",
-  fit_largo: "Fit Largo (1-4min)",
-  mas_training: "MAS Training",
-};
-
-function getRowClass(porcentaje: number) {
-  if (porcentaje < 90) return "bg-blue-50";
-  if (porcentaje <= 100) return "bg-green-50";
-  if (porcentaje <= 110) return "bg-yellow-100";
-  return "bg-red-100";
-}
+import { INTERVAL_TYPE_LABELS, IntervalRowsTable } from "@/components/speed/IntervalRowsTable";
 
 function groupByType(rows: IntervalTableType["rows"]) {
   return rows.reduce<Record<string, typeof rows>>((groups, row) => {
@@ -49,29 +37,11 @@ export default function IntervalTable({ table }: Props) {
           const rows = grouped[type] ?? [];
           if (rows.length === 0) return null;
           return (
-            <div key={type} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <h3 className="text-sm font-semibold text-slate-900">{TYPE_LABELS[type]}</h3>
-              <div className="mt-3 overflow-x-auto">
-                <table className="min-w-full text-left text-sm text-slate-700">
-                  <thead className="bg-white text-slate-900">
-                    <tr>
-                      <th className="px-3 py-2">%</th>
-                      <th className="px-3 py-2">Velocidad km/h</th>
-                      <th className="px-3 py-2">Ritmo min/km</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <tr key={`${type}-${row.porcentaje}`} className={getRowClass(row.porcentaje)}>
-                        <td className="px-3 py-2 font-medium text-slate-900">{row.porcentaje}%</td>
-                        <td className="px-3 py-2">{row.velocidad_kmh.toFixed(2)}</td>
-                        <td className="px-3 py-2">{row.ritmo_str}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <IntervalRowsTable
+              key={type}
+              rows={rows}
+              title={INTERVAL_TYPE_LABELS[type]}
+            />
           );
         })}
       </div>

@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRsaFatigueTest } from "@/lib/api/speed";
+import { getTodayDate, isFutureDate } from "@/lib/date";
 import { parseApiError } from "@/lib/utils";
 import { RsaFatiguePreviewCard } from "@/components/speed/RsaFatiguePreviewCard";
 
@@ -112,6 +113,7 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
   const [sprintTimes, setSprintTimes] = useState<string[]>(["", ""]);
   const [distancia_sprint_m, setDistancia_sprint_m] = useState<string>("");
   const [pausa_s, setPausa_s] = useState<string>("");
+  const [date, setDate] = useState(getTodayDate);
   const [notes, setNotes] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -121,7 +123,7 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
   const successTimeoutRef = useRef<number | null>(null);
 
   const isAuthenticated = Boolean(authToken);
-  const today = new Date().toISOString().slice(0, 10);
+  const maxDate = getTodayDate();
 
   const parsedTiempos = useMemo(() => parseSprintInputs(sprintTimes), [sprintTimes]);
   const preview = useMemo(
@@ -199,12 +201,22 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
       return;
     }
 
+    if (!date.trim()) {
+      setError("Seleccioná una fecha válida.");
+      return;
+    }
+
+    if (isFutureDate(date)) {
+      setError("La fecha no puede ser futura.");
+      return;
+    }
+
     setIsSaving(true);
 
     try {
       const data: RsaFatigueTestResponse = await createRsaFatigueTest(
         athleteId,
-        today,
+        date,
         parsedTiempos,
         parsedDistancia,
         parsedPausa,
@@ -218,6 +230,7 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
       setDistancia_sprint_m("");
       setPausa_s("");
       setNotes("");
+      setDate(getTodayDate());
       if (onSuccess) onSuccess();
     } catch (submitError: unknown) {
       setError(parseApiError(submitError, "Error al guardar el test. Intentá de nuevo."));
@@ -235,6 +248,21 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
       <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-sm text-blue-800">
         <span className="font-medium">ℹ️ {DESCRIPTION.title}</span>
         <p className="mt-1 text-blue-700">{DESCRIPTION.description}</p>
+      </div>
+
+      <div>
+        <label htmlFor="rsa-test-date" className="block text-xs text-slate-500 mb-1">
+          Fecha
+        </label>
+        <input
+          id="rsa-test-date"
+          type="date"
+          value={date}
+          max={maxDate}
+          onChange={(event) => setDate(event.target.value)}
+          required
+          className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+        />
       </div>
 
       <div className="space-y-3">

@@ -2,6 +2,10 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createSpeedTest } from "@/lib/api/speed";
+import { SPEED_TEST_DISTANCE_PRESETS } from "@/lib/constants";
+import { getTodayDate, isFutureDate } from "@/lib/date";
+import { formatPaceWithUnit } from "@/lib/units";
+import { calculateVelKmh } from "@/lib/speedCalc";
 
 interface Props {
   athleteId: number | null;
@@ -24,24 +28,8 @@ interface SpeedTestResponse {
 const DESCRIPTION = {
   title: "Test de Velocidad (MSS)",
   description:
-    "El atleta corre una distancia libre cronometrada a máxima velocidad sostenida. Ingresá la distancia en metros y el tiempo en segundos. La app calcula la velocidad en km/h y el ritmo equivalente.",
+    "Ingresá la distancia en metros y el tiempo en segundos (cualquier valor válido). Podés usar los atajos o escribir una distancia personalizada. La app calcula la velocidad máxima en km/h y el ritmo equivalente.",
 };
-
-function calculatePreview(distancia_m: number, tiempo_s: number) {
-  if (!Number.isFinite(distancia_m) || distancia_m <= 0) {
-    return null;
-  }
-  if (!Number.isFinite(tiempo_s) || tiempo_s <= 0) {
-    return null;
-  }
-
-  const velKmh = (distancia_m / tiempo_s) * 3.6;
-  if (!Number.isFinite(velKmh) || velKmh <= 0) {
-    return null;
-  }
-
-  return { velPreview: velKmh.toFixed(2) };
-}
 
 function extractErrorMessage(error: unknown) {
   if (!error || typeof error !== "object") {
@@ -60,8 +48,9 @@ function extractErrorMessage(error: unknown) {
 }
 
 export function SpeedTestForm({ athleteId, authToken, embedded = false, onSuccess }: Props) {
-  const [distancia_m, setDistancia_m] = useState<string>("100");
-  const [tiempo_s, setTiempo_s] = useState<string>("10");
+  const [distancia_m, setDistancia_m] = useState<string>("30");
+  const [tiempo_s, setTiempo_s] = useState<string>("4");
+  const [date, setDate] = useState(getTodayDate);
   const [notes, setNotes] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -70,15 +59,21 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
   const successTimeoutRef = useRef<number | null>(null);
 
   const isAuthenticated = Boolean(authToken);
-  const today = new Date().toISOString().slice(0, 10);
+  const maxDate = getTodayDate();
 
   const parsedDistancia = useMemo(() => Number(distancia_m.replace(",", ".")), [distancia_m]);
   const parsedTiempo = useMemo(() => Number(tiempo_s.replace(",", ".")), [tiempo_s]);
 
-  const preview = useMemo(
-    () => calculatePreview(parsedDistancia, parsedTiempo),
+  const velKmhPreview = useMemo(
+    () => calculateVelKmh(parsedDistancia, parsedTiempo),
     [parsedDistancia, parsedTiempo],
   );
+
+  const selectedPreset =
+    Number.isFinite(parsedDistancia) &&
+    SPEED_TEST_DISTANCE_PRESETS.includes(parsedDistancia as (typeof SPEED_TEST_DISTANCE_PRESETS)[number])
+      ? parsedDistancia
+      : null;
 
   useEffect(() => {
     return () => {
@@ -124,23 +119,34 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
       return;
     }
 
+    if (!date.trim()) {
+      setError("Seleccioná una fecha válida.");
+      return;
+    }
+
+    if (isFutureDate(date)) {
+      setError("La fecha no puede ser futura.");
+      return;
+    }
+
     setIsSaving(true);
 
     try {
       const data: SpeedTestResponse = await createSpeedTest(
         athleteId,
-        today,
+        date,
         parsedDistancia,
         parsedTiempo,
         notes.trim() || null,
       );
       setCreatedTest(data);
       setSuccess(
-        `✅ Test guardado. Velocidad: ${data.vel_kmh.toFixed(2)} km/h · Ritmo: ${data.ritmo_str} /km`,
+        `✅ Test guardado. Velocidad máxima: ${data.vel_kmh.toFixed(2)} km/h · Ritmo: ${formatPaceWithUnit(data.ritmo_str)}`,
       );
-      setDistancia_m("100");
-      setTiempo_s("10");
+      setDistancia_m("30");
+      setTiempo_s("4");
       setNotes("");
+      setDate(getTodayDate());
       if (onSuccess) onSuccess();
     } catch (submitError: unknown) {
       setError(extractErrorMessage(submitError));
@@ -160,39 +166,89 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
         <p className="mt-1 text-blue-700">{DESCRIPTION.description}</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label htmlFor="speed-test-date" className="block text-xs text-slate-500 mb-1">
+          Fecha
+        </label>
+        <input
+          id="speed-test-date"
+          type="date"
+          value={date}
+          max={maxDate}
+          onChange={(event) => setDate(event.target.value)}
+          required
+          className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+        />
+      </div>
+
+      <div className="space-y-3">
         <div>
-          <label className="block text-xs text-slate-500 mb-2">Distancia (m)</label>
+          <label htmlFor="speed-test-distancia" className="block text-xs text-slate-500 mb-2">
+            Distancia (m)
+          </label>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {SPEED_TEST_DISTANCE_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => setDistancia_m(String(preset))}
+                className={`min-w-[3.5rem] px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 active:scale-[0.97] ${
+                  selectedPreset === preset
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-200 ring-2 ring-indigo-300 ring-offset-1"
+                    : "bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 hover:border-slate-300"
+                }`}
+              >
+                {preset} m
+              </button>
+            ))}
+          </div>
           <input
+            id="speed-test-distancia"
             type="number"
             min="0"
             step="any"
             value={distancia_m}
             onChange={(event) => setDistancia_m(event.target.value)}
+            placeholder="Ej: 35 (distancia personalizada)"
             className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
           />
+          <p className="mt-1 text-xs text-slate-500">
+            Podés elegir un atajo o escribir cualquier distancia en metros.
+          </p>
         </div>
+
         <div>
-          <label className="block text-xs text-slate-500 mb-2">Tiempo (s)</label>
+          <label htmlFor="speed-test-tiempo" className="block text-xs text-slate-500 mb-2">
+            Tiempo (s)
+          </label>
           <input
+            id="speed-test-tiempo"
             type="number"
             min="0"
             step="any"
             value={tiempo_s}
             onChange={(event) => setTiempo_s(event.target.value)}
+            placeholder="Ej: 4.25"
             className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
           />
         </div>
       </div>
 
-      {preview && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-4">
-          <p className="text-sm font-medium text-green-800">Vista previa del resultado</p>
-          <div className="flex gap-6 mt-1">
-            <span className="text-green-700 text-sm">
-              Velocidad: <strong>{preview.velPreview} km/h</strong>
-            </span>
-          </div>
+      {velKmhPreview !== null ? (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-indigo-700">
+            Velocidad máxima calculada
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-indigo-900">
+            {velKmhPreview.toFixed(2)} <span className="text-base font-medium">km/h</span>
+          </p>
+          <p className="mt-1 text-xs text-indigo-700">
+            {parsedDistancia} m ÷ {parsedTiempo} s × 3,6
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+          Completá distancia y tiempo válidos para ver la velocidad máxima en km/h.
         </div>
       )}
 
@@ -208,7 +264,7 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
 
       <button
         type="submit"
-        disabled={isSaving}
+        disabled={isSaving || velKmhPreview === null}
         className="inline-flex items-center justify-center rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isSaving ? "Guardando..." : "Registrar test de velocidad"}
@@ -232,8 +288,8 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
           <p>Distancia: {createdTest.distancia_m} m</p>
           <p>Tiempo: {createdTest.tiempo_s} s</p>
           <p>Fecha: {createdTest.date}</p>
-          <p>Velocidad: {createdTest.vel_kmh.toFixed(2)} km/h</p>
-          <p>Ritmo: {createdTest.ritmo_str} /km</p>
+          <p>Velocidad máxima: {createdTest.vel_kmh.toFixed(2)} km/h</p>
+          <p>Ritmo: {formatPaceWithUnit(createdTest.ritmo_str)}</p>
         </div>
       )}
     </form>
