@@ -1,8 +1,9 @@
 from app.session_calculators.hiit_corto import _parse_ratio
-from app.vam_calculator import _format_pace_from_kmh
+from app.vam_calculator import _format_pace_from_kmh, calculate_zones
 
 ENTRENAMIENTO_LARGO = "Intervalo Largo"
 ENTRENAMIENTO_CORTO = "Intervalo Corto"
+ZONA_2_NAME = "Zona 2"
 
 
 def _format_duration_mm_ss(seconds: float) -> str:
@@ -32,34 +33,35 @@ def _calculate_intensity_extreme(
     }, distancia_m
 
 
-def _volumenes_ponderados(
+def _z2_from_reference(reference_kmh: float) -> dict:
+    """Z2 del atleta = calculate_zones() sobre la misma VAM que usa HIIT."""
+    vam_mpm = (reference_kmh * 1000) / 60
+    zone = next(z for z in calculate_zones(vam_mpm) if z["zona"] == ZONA_2_NAME)
+    return zone
+
+
+def _distancia_desde_tiempo(vel_kmh: float, tiempo_s: float) -> float:
+    ritmo_decimal_min_km = 60 / vel_kmh
+    return (tiempo_s / 60) / ritmo_decimal_min_km * 1000
+
+
+def _volumenes_con_pausa_z2(
     d_min: float,
     d_max: float,
+    d_pausa_z2: float,
     trabajo: float,
     pausa: float,
     serie: float,
     bloques: int,
 ) -> tuple[float, float]:
-    """Réplica literal de AF13 / AG13 / AK13 / AL13 (MAS training, AD-AL).
+    """Volumen = ciclos × (distancia trabajo + distancia pausa activa en Z2).
 
-    Promedios ponderados por proporción de tiempo Trabajo/Pausa combinando
-    ambos extremos. Pausa activa: la distancia de pausa usa el ritmo del
-    extremo contrario. No reducir a (d_min+d_max)/2 × n de antemano.
+    El trabajo promedia los extremos min/max; la pausa activa usa siempre Z2.
     """
-    ciclo = trabajo + pausa
-
-    # AF13: ciclo con trabajo en min y pausa activa en max
-    af13 = d_min + (pausa / trabajo) * d_max
-    # AG13: ciclo con trabajo en max y pausa activa en min
-    ag13 = d_max + (pausa / trabajo) * d_min
-
-    n_ciclos = serie / ciclo
-    # AK13: Volumen Serie (m)
-    ak13 = ((af13 + ag13) / 2) * n_ciclos
-    # AL13: Volumen Trabajo (m)
-    al13 = ak13 * bloques
-
-    return round(ak13, 2), round(al13, 2)
+    n_ciclos = serie / (trabajo + pausa)
+    volumen_serie_m = n_ciclos * ((d_min + d_max) / 2 + d_pausa_z2)
+    volumen_trabajo_m = volumen_serie_m * bloques
+    return round(volumen_serie_m, 2), round(volumen_trabajo_m, 2)
 
 
 def _calculate_hiit_continuo(
@@ -97,9 +99,14 @@ def _calculate_hiit_continuo(
     max_extreme["pausa_s"] = round(pausa_s, 2)
     max_extreme["pausa_str"] = _format_duration_mm_ss(pausa_s)
 
-    volumen_serie_m, volumen_trabajo_m = _volumenes_ponderados(
+    z2 = _z2_from_reference(reference_kmh)
+    z2_kmh = z2["velocidad_kmh"]
+    d_pausa_z2 = _distancia_desde_tiempo(z2_kmh, pausa_s)
+
+    volumen_serie_m, volumen_trabajo_m = _volumenes_con_pausa_z2(
         d_min=d_min,
         d_max=d_max,
+        d_pausa_z2=d_pausa_z2,
         trabajo=trabajo_s,
         pausa=pausa_s,
         serie=serie_min * 60,
@@ -117,6 +124,10 @@ def _calculate_hiit_continuo(
         "densidad_str": _format_duration_mm_ss(densidad_min * 60),
         "volumen_serie_m": volumen_serie_m,
         "volumen_trabajo_m": volumen_trabajo_m,
+        "z2_kmh": z2_kmh,
+        "z2_ritmo_str": _format_pace_from_kmh(z2_kmh),
+        "z2_pct_min": z2["pct_min"],
+        "z2_pct_max": z2["pct_max"],
     }
 
 

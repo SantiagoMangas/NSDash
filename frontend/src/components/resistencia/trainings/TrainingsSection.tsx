@@ -3,8 +3,15 @@
 import { TrainingTablesSection } from "@/components/speed/TrainingTablesSection";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import type { VelocityDashboard } from "@/lib/types";
+import { EvaluationAccordion } from "../EvaluationAccordion";
+import { HiitContinuoForm } from "./HiitContinuoForm";
+import { HiitCortoForm } from "./HiitCortoForm";
+import { HiitLargoForm } from "./HiitLargoForm";
+import { MasTrainingForm } from "./MasTrainingForm";
 import { RecommendedTrainingCards } from "./RecommendedTrainingCards";
+import { RsaSessionForm } from "./RsaSessionForm";
 import { SpeedTestReferenceSelector } from "./SpeedTestReferenceSelector";
+import { TempoRunForm } from "./TempoRunForm";
 
 type Props = {
   athleteId: number;
@@ -58,6 +65,31 @@ export function TrainingsSection({
         </div>
       ) : (
         <div className="space-y-8">
+          <div className="space-y-3">
+            <div className="mb-1">
+              <h3 className="text-sm font-semibold text-slate-800">Calculadoras de sesión</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Armá el entrenamiento del día. Las tablas de zonas y VAM quedan abajo.</p>
+            </div>
+            <EvaluationAccordion title="HIIT Corto">
+              <HiitCortoForm hiitReferenceTable={hiitReferenceTable} />
+            </EvaluationAccordion>
+            <EvaluationAccordion title="HIIT Largo">
+              <HiitLargoForm hiitReferenceTable={hiitReferenceTable} />
+            </EvaluationAccordion>
+            <EvaluationAccordion title="HIIT Continuo">
+              <HiitContinuoForm hiitReferenceTable={hiitReferenceTable} />
+            </EvaluationAccordion>
+            <EvaluationAccordion title="MAS Training" defaultOpen>
+              <MasTrainingForm masReferenceTable={masReferenceTable} />
+            </EvaluationAccordion>
+            <EvaluationAccordion title="Tempo Run">
+              <TempoRunForm speedTestTable={speedTestTable} />
+            </EvaluationAccordion>
+            <EvaluationAccordion title="RSA">
+              <RsaSessionForm speedTestTable={speedTestTable} />
+            </EvaluationAccordion>
+          </div>
+
           <RecommendedTrainingCards
             speedReferenceKmh={speedReferenceKmh}
             speedTestTable={speedTestTable}

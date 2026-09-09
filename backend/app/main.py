@@ -8,7 +8,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from . import asr_calculator, auth, models, schemas, rsa_calculator, speed_calculator, team_grouping, vam_calculator
-from .session_calculators import hiit_continuo, hiit_corto, hiit_largo, rsa
+from .session_calculators import hiit_continuo, hiit_corto, hiit_largo, mas_training, rsa, tempo_run
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
 from .demo_seed import has_demo_data, seed_demo_data, seed_resistencia_demo_data
 
@@ -1212,6 +1212,62 @@ def post_calculate_hiit_continuo_corto(
             bloques=payload.bloques,
             macro_pausa_min=payload.macro_pausa_min,
             ratio=payload.ratio,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post(
+    "/training-sessions/mas-training/calculate",
+    response_model=schemas.MasTrainingCalculateResponse,
+)
+def post_calculate_mas_training(
+    payload: schemas.MasTrainingCalculateRequest,
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """Calcula parámetros de sesión MAS Training (Largo/Corto) sin persistencia."""
+    try:
+        return mas_training.calculate_mas_training(
+            reference_kmh=payload.reference_kmh,
+            intensidad_pct_min=payload.intensidad_pct_min,
+            intensidad_pct_max=payload.intensidad_pct_max,
+            trabajo_s=payload.trabajo_s,
+            serie_min=payload.serie_min,
+            bloques=payload.bloques,
+            macro_pausa_min=payload.macro_pausa_min,
+            ratio=payload.ratio,
+            entrenamiento=payload.entrenamiento,
+            cod=payload.cod,
+            shuttles=payload.shuttles,
+            fecha=payload.fecha,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post(
+    "/training-sessions/tempo-run/calculate",
+    response_model=schemas.TempoRunCalculateResponse,
+)
+def post_calculate_tempo_run(
+    payload: schemas.TempoRunCalculateRequest,
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    """Calcula parámetros de sesión Tempo Run (Extensivo / I. Recovery) sin persistencia."""
+    try:
+        return tempo_run.calculate_tempo_run(
+            reference_kmh=payload.reference_kmh,
+            intensidad_pct_min=payload.intensidad_pct_min,
+            intensidad_pct_max=payload.intensidad_pct_max,
+            distancia_m=payload.distancia_m,
+            pausa_m=payload.pausa_m,
+            series=payload.series,
+            bloques=payload.bloques,
+            ratio=payload.ratio,
+            entrenamiento=payload.entrenamiento,
+            cod=payload.cod,
+            shuttles=payload.shuttles,
+            fecha=payload.fecha,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -53,6 +53,10 @@ class TestCalculateHiitCorto:
         assert result["max"]["pausa_s"] == pytest.approx(82.76, abs=0.01)
 
         assert result["volumen_m"] == 1600
+        min_cycle = result["min"]["trabajo_s"] + result["min"]["pausa_s"]
+        max_cycle = result["max"]["trabajo_s"] + result["max"]["pausa_s"]
+        expected_densidad = ((min_cycle + max_cycle) / 2 / 60) * 4 + 3 * 2
+        assert result["densidad_min"] == pytest.approx(expected_densidad, abs=0.01)
 
     def test_ratio_3_1_pause_shorter_than_work(self):
         result = calculate_hiit_corto(

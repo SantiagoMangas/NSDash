@@ -557,6 +557,7 @@ class HiitCortoCalculateResponse(BaseModel):
     min: HiitCortoIntensityResult
     max: HiitCortoIntensityResult
     volumen_m: int
+    densidad_min: float
 
 
 class HiitLargoIntensityResult(BaseModel):
@@ -625,6 +626,92 @@ class HiitContinuoCalculateResponse(BaseModel):
     serie_min: float
     densidad_min: float
     densidad_str: str
+    volumen_serie_m: float
+    volumen_trabajo_m: float
+    z2_kmh: float
+    z2_ritmo_str: str
+    z2_pct_min: float
+    z2_pct_max: float
+
+
+class MasTrainingIntensityResult(BaseModel):
+    velocidad_kmh: float
+    ritmo_str: str
+    distancia_m: float
+    trabajo_s: float
+    trabajo_str: str
+    pausa_s: float
+    pausa_str: str
+    volumen_serie_m: float
+    volumen_trabajo_m: float
+
+
+class MasTrainingCalculateRequest(BaseModel):
+    reference_kmh: float
+    intensidad_pct_min: float
+    intensidad_pct_max: float
+    trabajo_s: float
+    serie_min: float
+    bloques: int
+    macro_pausa_min: float
+    ratio: str
+    entrenamiento: str
+    cod: str
+    shuttles: float = 0
+    fecha: Optional[Date] = None
+
+
+class MasTrainingCalculateResponse(BaseModel):
+    metodologia: str
+    entrenamiento: str
+    fecha: Optional[Date] = None
+    cod: str
+    shuttles: float
+    ciclos: float
+    min: MasTrainingIntensityResult
+    max: MasTrainingIntensityResult
+    serie_min: float
+    densidad_min: float
+    densidad_str: str
+
+
+class TempoRunIntensityResult(BaseModel):
+    velocidad_kmh: float
+    ritmo_str: str
+    trabajo_s: float
+    trabajo_str: str
+    pausa_s: float
+    pausa_str: str
+
+
+class TempoRunCalculateRequest(BaseModel):
+    reference_kmh: float
+    intensidad_pct_min: float
+    intensidad_pct_max: float
+    distancia_m: float
+    pausa_m: float
+    series: int
+    bloques: int
+    ratio: str
+    entrenamiento: str
+    cod: str
+    shuttles: float = 0
+    fecha: Optional[Date] = None
+
+
+class TempoRunCalculateResponse(BaseModel):
+    metodologia: str
+    entrenamiento: str
+    fecha: Optional[Date] = None
+    cod: str
+    shuttles: float
+    distancia_m: float
+    distancia_ajustada_m: float
+    pausa_m: float
+    series: int
+    bloques: int
+    min: TempoRunIntensityResult
+    max: TempoRunIntensityResult
     volumen_serie_m: float
     volumen_trabajo_m: float
 

@@ -1,4 +1,4 @@
-from app.session_calculators.hiit_corto import _parse_ratio
+from app.session_calculators.hiit_corto import _parse_ratio, calculate_densidad_min
 from app.vam_calculator import _format_pace_from_kmh
 
 
@@ -29,19 +29,6 @@ def _calculate_intensity_extreme(
         "pausa_s": round(pausa_s, 2),
         "pausa_str": _format_duration_mm_ss(pausa_s),
     }
-
-
-def _calculate_densidad_min(
-    min_extreme: dict[str, float | str],
-    max_extreme: dict[str, float | str],
-    reps: int,
-    series: int,
-    macro_pausa_min: float,
-) -> float:
-    min_cycle_s = float(min_extreme["trabajo_s"]) + float(min_extreme["pausa_s"])
-    max_cycle_s = float(max_extreme["trabajo_s"]) + float(max_extreme["pausa_s"])
-    avg_cycle_s = (min_cycle_s + max_cycle_s) / 2
-    return round((avg_cycle_s / 60) * reps + macro_pausa_min * series, 2)
 
 
 def calculate_hiit_largo(
@@ -76,7 +63,7 @@ def calculate_hiit_largo(
         "min": min_extreme,
         "max": max_extreme,
         "volumen_m": volumen_m,
-        "densidad_min": _calculate_densidad_min(
+        "densidad_min": calculate_densidad_min(
             min_extreme,
             max_extreme,
             reps,

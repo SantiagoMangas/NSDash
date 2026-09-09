@@ -44,6 +44,20 @@ def _calculate_intensity_extreme(
     }
 
 
+def calculate_densidad_min(
+    min_extreme: dict[str, float | str],
+    max_extreme: dict[str, float | str],
+    reps: int,
+    series: int,
+    macro_pausa_min: float,
+) -> float:
+    """Promedio de (Trabajo+Pausa) de ambos extremos × Reps + Macro Pausa × Series."""
+    min_cycle_s = float(min_extreme["trabajo_s"]) + float(min_extreme["pausa_s"])
+    max_cycle_s = float(max_extreme["trabajo_s"]) + float(max_extreme["pausa_s"])
+    avg_cycle_s = (min_cycle_s + max_cycle_s) / 2
+    return round((avg_cycle_s / 60) * reps + macro_pausa_min * series, 2)
+
+
 def calculate_hiit_corto(
     reference_kmh: float,
     intensidad_pct_min: float,
@@ -57,20 +71,30 @@ def calculate_hiit_corto(
     ratio_numerador, ratio_denominador = _parse_ratio(ratio)
     volumen_m = reps * distancia_m * series
 
+    min_extreme = _calculate_intensity_extreme(
+        reference_kmh,
+        intensidad_pct_min,
+        distancia_m,
+        ratio_numerador,
+        ratio_denominador,
+    )
+    max_extreme = _calculate_intensity_extreme(
+        reference_kmh,
+        intensidad_pct_max,
+        distancia_m,
+        ratio_numerador,
+        ratio_denominador,
+    )
+
     return {
-        "min": _calculate_intensity_extreme(
-            reference_kmh,
-            intensidad_pct_min,
-            distancia_m,
-            ratio_numerador,
-            ratio_denominador,
-        ),
-        "max": _calculate_intensity_extreme(
-            reference_kmh,
-            intensidad_pct_max,
-            distancia_m,
-            ratio_numerador,
-            ratio_denominador,
-        ),
+        "min": min_extreme,
+        "max": max_extreme,
         "volumen_m": volumen_m,
+        "densidad_min": calculate_densidad_min(
+            min_extreme,
+            max_extreme,
+            reps,
+            series,
+            macro_pausa_min,
+        ),
     }
