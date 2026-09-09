@@ -121,7 +121,7 @@ export function RecommendedTrainingCards({
         <p className="text-xs font-medium uppercase tracking-wide text-indigo-600">Entrenamiento recomendado</p>
         {speedReferenceKmh !== null ? (
           <p className="mt-1 text-sm text-slate-700">
-            Velocidad máxima (Speed Test):{" "}
+            MSS (Speed Test):{" "}
             <strong className="text-slate-900">{speedReferenceKmh.toFixed(2)} km/h</strong>
           </p>
         ) : null}

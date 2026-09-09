@@ -23,6 +23,7 @@ import { DATE_RANGE_OPTIONS } from "@/lib/constants";
 import { parseApiError } from "@/lib/utils";
 import {
   formatChartDate,
+  formatDisplayDate,
   getTodayDate,
   parseLocalDate,
   startOfToday,
@@ -1146,7 +1147,7 @@ export default function Home() {
                           <p className="text-sm font-semibold text-slate-700">
                             {lastLog.weight} kg × {lastLog.reps} rep{lastLog.reps !== 1 ? "s" : ""}
                           </p>
-                          <p className="text-xs text-slate-400 mt-0.5">{lastLog.date}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{formatDisplayDate(lastLog.date)}</p>
                         </div>
                       </div>
                     );
@@ -1287,7 +1288,7 @@ export default function Home() {
                             }`}
                           >
                             <div className="flex items-center gap-4">
-                              <span className="text-xs text-slate-400 w-20">{log.date}</span>
+                              <span className="text-xs text-slate-400 w-20">{formatDisplayDate(log.date)}</span>
                               <span className="text-sm text-slate-700 font-medium">
                                 {log.weight} kg × {log.reps} rep{log.reps !== 1 ? "s" : ""}
                               </span>

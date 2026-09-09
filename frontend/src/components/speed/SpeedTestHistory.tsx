@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import { deleteSpeedTest, getSpeedTests, type SpeedTestSummary } from "@/lib/api/speed";
+import { formatDisplayDate } from "@/lib/date";
 import { formatPaceWithUnit } from "@/lib/units";
 import { parseApiError } from "@/lib/utils";
 
@@ -49,7 +50,7 @@ export function SpeedTestHistory({ athleteId, refreshKey, onDeleted }: Props) {
 
   const fastestTestId = useMemo(() => {
     if (tests.length === 0) return null;
-    return tests.reduce((best, test) => (test.vel_kmh > best.vel_kmh ? test : best), tests[0]).id;
+    return tests.reduce((best, test) => (test.mss_kmh > best.mss_kmh ? test : best), tests[0]).id;
   }, [tests]);
 
   const handleDelete = async (testId: number) => {
@@ -106,7 +107,9 @@ export function SpeedTestHistory({ athleteId, refreshKey, onDeleted }: Props) {
                 <th className="px-4 py-3">Fecha</th>
                 <th className="px-4 py-3">Distancia (m)</th>
                 <th className="px-4 py-3">Tiempo (s)</th>
-                <th className="px-4 py-3">Velocidad (km/h)</th>
+                <th className="px-4 py-3">Promedio (km/h)</th>
+                <th className="px-4 py-3">Pico (km/h)</th>
+                <th className="px-4 py-3">MSS (km/h)</th>
                 <th className="px-4 py-3">Ritmo (min/km)</th>
                 <th className="px-4 py-3">Acciones</th>
               </tr>
@@ -116,10 +119,14 @@ export function SpeedTestHistory({ athleteId, refreshKey, onDeleted }: Props) {
                 const isFastest = test.id === fastestTestId;
                 return (
                   <tr key={test.id} className={isFastest ? "bg-emerald-50" : "bg-white"}>
-                    <td className="px-4 py-3">{new Date(test.date).toLocaleDateString("es-AR")}</td>
+                    <td className="px-4 py-3">{formatDisplayDate(test.date)}</td>
                     <td className="px-4 py-3">{test.distancia_m}</td>
                     <td className="px-4 py-3">{test.tiempo_s}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-900">{test.vel_kmh.toFixed(2)}</td>
+                    <td className="px-4 py-3">{test.vel_kmh.toFixed(2)}</td>
+                    <td className="px-4 py-3">
+                      {test.velocidad_pico_kmh ? test.velocidad_pico_kmh.toFixed(2) : "—"}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-slate-900">{test.mss_kmh.toFixed(2)}</td>
                     <td className="px-4 py-3">{formatPaceWithUnit(test.ritmo_str)}</td>
                     <td className="px-4 py-3">
                       <button

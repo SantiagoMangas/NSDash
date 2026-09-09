@@ -346,6 +346,7 @@ class SpeedTestInput(BaseModel):
     date: Date
     distancia_m: float
     tiempo_s: float
+    velocidad_pico_kmh: Optional[float] = None
     notes: Optional[str] = None
 
     @field_validator("distancia_m")
@@ -362,6 +363,15 @@ class SpeedTestInput(BaseModel):
             raise ValueError("tiempo_s debe ser un número positivo válido")
         return v
 
+    @field_validator("velocidad_pico_kmh")
+    @classmethod
+    def validate_velocidad_pico_kmh(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return None
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError("velocidad_pico_kmh debe ser un número positivo válido")
+        return v
+
 
 class SpeedTestResponse(BaseModel):
     id: int
@@ -370,6 +380,8 @@ class SpeedTestResponse(BaseModel):
     distancia_m: float
     tiempo_s: float
     vel_kmh: float
+    velocidad_pico_kmh: Optional[float] = None
+    mss_kmh: float
     ritmo_str: str
     notes: Optional[str]
 
@@ -381,6 +393,8 @@ class SpeedTestSummary(BaseModel):
     distancia_m: float
     tiempo_s: float
     vel_kmh: float
+    velocidad_pico_kmh: Optional[float] = None
+    mss_kmh: float
     ritmo_str: str
 
 

@@ -3,7 +3,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createVamTest, getYoyoLevels } from "@/lib/api/vam";
 import { formatPaceWithUnit } from "@/lib/units";
-import { getTodayDate, isFutureDate } from "@/lib/date";
+import { formatDisplayDate, getTodayDate, isFutureDate } from "@/lib/date";
+import { parseDurationParts } from "@/lib/utils";
 
 type VamTestType = "vam_2000m" | "vam_5min" | "test_30_15_ift" | "yoyo_ri1";
 
@@ -42,12 +43,12 @@ const TEST_DESCRIPTIONS: Record<
   vam_2000m: {
     title: "Test VAM 2000m",
     description:
-      "El atleta corre 2000 metros a máxima intensidad sostenida. Ingresá el tiempo total en minutos (podés usar decimales: 7.5 = 7min 30seg). A partir del tiempo, la app calcula la Velocidad Aeróbica Máxima.",
+      "El atleta corre 2000 metros a máxima intensidad sostenida. Ingresá el tiempo total en minutos y segundos. A partir del tiempo, la app calcula la Velocidad Aeróbica Máxima.",
   },
   vam_5min: {
     title: "Test VAM 5 minutos",
     description:
-      "El atleta corre durante exactamente 5 minutos a máxima intensidad. Ingresá la distancia total recorrida en metros. La app calcula la VAM dividiendo esa distancia por el tiempo.",
+      "El atleta corre a máxima intensidad. Ingresá el tiempo total y la distancia recorrida — la app calcula la VAM dividiendo distancia por tiempo.",
   },
   test_30_15_ift: {
     title: "Test 30-15 IFT (Buchheit)",
@@ -61,12 +62,18 @@ const TEST_DESCRIPTIONS: Record<
   },
 };
 
+function getTimeFieldRole(testType: VamTestType): "value1" | "value2" | null {
+  if (testType === "vam_2000m") return "value2";
+  if (testType === "vam_5min") return "value1";
+  return null;
+}
+
 function buildFieldLabels(testType: VamTestType) {
   switch (testType) {
     case "vam_2000m":
-      return { value1: "Distancia (m)", value2: "Tiempo total (min)" };
+      return { value1: "Distancia (m)", value2: "Tiempo total" };
     case "vam_5min":
-      return { value1: "Tiempo total (min)", value2: "Distancia recorrida (m)" };
+      return { value1: "Tiempo total", value2: "Distancia recorrida (m)" };
     case "test_30_15_ift":
       return { value1: "Velocidad final (km/h)", value2: null };
     case "yoyo_ri1":
@@ -116,6 +123,8 @@ export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = fa
   const [testType, setTestType] = useState<VamTestType>(fixedTestType ?? "vam_2000m");
   const [value1, setValue1] = useState<string>("2000");
   const [value2, setValue2] = useState<string>("7");
+  const [timeMinutes, setTimeMinutes] = useState<string>("7");
+  const [timeSeconds, setTimeSeconds] = useState<string>("0");
   const [date, setDate] = useState(getTodayDate);
   const [notes, setNotes] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -130,11 +139,28 @@ export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = fa
   const isAuthenticated = Boolean(authToken);
   const maxDate = getTodayDate();
 
-  const parsedValue1 = useMemo(() => Number(value1.replace(",", ".")), [value1]);
-  const parsedValue2 = useMemo(
-    () => (value2.trim() === "" ? null : Number(value2.replace(",", "."))),
-    [value2],
+  const timeFieldRole = getTimeFieldRole(testType);
+  const parsedDuration = useMemo(
+    () => parseDurationParts(timeMinutes, timeSeconds),
+    [timeMinutes, timeSeconds],
   );
+
+  const parsedValue1 = useMemo(() => {
+    if (timeFieldRole === "value1") {
+      return parsedDuration ?? Number.NaN;
+    }
+    return Number(value1.replace(",", "."));
+  }, [timeFieldRole, parsedDuration, value1]);
+
+  const parsedValue2 = useMemo(() => {
+    if (timeFieldRole === "value2") {
+      return parsedDuration;
+    }
+    if (value2.trim() === "") {
+      return null;
+    }
+    return Number(value2.replace(",", "."));
+  }, [timeFieldRole, parsedDuration, value2]);
 
   const preview = useMemo(
     () => calculatePreview(testType, parsedValue1, parsedValue2),
@@ -208,18 +234,26 @@ export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = fa
       case "vam_2000m":
         setValue1("2000");
         setValue2("7");
+        setTimeMinutes("7");
+        setTimeSeconds("0");
         break;
       case "vam_5min":
         setValue1("5");
         setValue2("1500");
+        setTimeMinutes("5");
+        setTimeSeconds("0");
         break;
       case "test_30_15_ift":
         setValue1("16");
         setValue2("");
+        setTimeMinutes("0");
+        setTimeSeconds("0");
         break;
       case "yoyo_ri1":
         setValue1("16");
         setValue2("16");
+        setTimeMinutes("0");
+        setTimeSeconds("0");
         break;
     }
   };
@@ -308,6 +342,13 @@ export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = fa
           ? ""
           : "16",
       );
+      if (testType === "vam_2000m") {
+        setTimeMinutes("7");
+        setTimeSeconds("0");
+      } else if (testType === "vam_5min") {
+        setTimeMinutes("5");
+        setTimeSeconds("0");
+      }
       setNotes("");
       setDate(getTodayDate());
       if (onSuccess) onSuccess();
@@ -366,26 +407,82 @@ export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = fa
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="block text-xs text-slate-500 mb-2">{fieldLabels.value1}</label>
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={value1}
-            onChange={(event) => setValue1(event.target.value)}
-            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-          />
-        </div>
-        {fieldLabels.value2 && (
-          <div>
-            <label className="block text-xs text-slate-500 mb-2">{fieldLabels.value2}</label>
+          {timeFieldRole === "value1" ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="0"
+                step="1"
+                inputMode="numeric"
+                value={timeMinutes}
+                onChange={(event) => setTimeMinutes(event.target.value)}
+                aria-label="Minutos"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <span className="text-sm text-slate-500">min</span>
+              <input
+                type="number"
+                min="0"
+                max="59"
+                step="1"
+                inputMode="numeric"
+                value={timeSeconds}
+                onChange={(event) => setTimeSeconds(event.target.value)}
+                aria-label="Segundos"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <span className="text-sm text-slate-500">seg</span>
+            </div>
+          ) : (
             <input
               type="number"
               min="0"
               step="any"
-              value={value2}
-              onChange={(event) => setValue2(event.target.value)}
+              value={value1}
+              onChange={(event) => setValue1(event.target.value)}
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
             />
+          )}
+        </div>
+        {fieldLabels.value2 && (
+          <div>
+            <label className="block text-xs text-slate-500 mb-2">{fieldLabels.value2}</label>
+            {timeFieldRole === "value2" ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  inputMode="numeric"
+                  value={timeMinutes}
+                  onChange={(event) => setTimeMinutes(event.target.value)}
+                  aria-label="Minutos"
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+                <span className="text-sm text-slate-500">min</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="59"
+                  step="1"
+                  inputMode="numeric"
+                  value={timeSeconds}
+                  onChange={(event) => setTimeSeconds(event.target.value)}
+                  aria-label="Segundos"
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+                <span className="text-sm text-slate-500">seg</span>
+              </div>
+            ) : (
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={value2}
+                onChange={(event) => setValue2(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+            )}
           </div>
         )}
       </div>
@@ -435,7 +532,7 @@ export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = fa
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
           <p className="font-medium text-slate-900">Resultado del test registrado</p>
           <p>Test: {createdTest.test_type.replace("_", " ")}</p>
-          <p>Fecha: {createdTest.date}</p>
+          <p>Fecha: {formatDisplayDate(createdTest.date)}</p>
           <p>VAM: {createdTest.vam_kmh.toFixed(2)} km/h</p>
           <p>Ritmo: {formatPaceWithUnit(createdTest.ritmo_str)}</p>
         </div>

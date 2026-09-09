@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import { deleteRsaFatigueTest, getRsaFatigueTests } from "@/lib/api/speed";
+import { formatDisplayDate } from "@/lib/date";
 import { parseApiError } from "@/lib/utils";
 
 type RsaFatigueTestHistoryItem = {
@@ -116,7 +117,7 @@ export function RsaFatigueTestHistory({ athleteId, refreshKey, onDeleted }: Prop
             <tbody>
               {tests.map((test) => (
                 <tr key={test.id} className="bg-white">
-                  <td className="px-4 py-3">{new Date(test.date).toLocaleDateString("es-AR")}</td>
+                  <td className="px-4 py-3">{formatDisplayDate(test.date)}</td>
                   <td className="px-4 py-3">{test.cantidad_sprints}</td>
                   <td className="px-4 py-3 font-semibold text-slate-900">
                     {test.indice_fatiga_pct.toFixed(2)}%

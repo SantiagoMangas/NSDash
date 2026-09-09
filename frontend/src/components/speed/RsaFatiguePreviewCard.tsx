@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/date";
+
 export type RsaFatiguePreviewData = {
   date: string;
   indice_fatiga_pct: number;
@@ -71,7 +73,7 @@ export function RsaFatiguePreviewCard({ test }: Props) {
             Vista previa del test RSA
           </p>
           <p className={`mt-1 text-sm ${classes.label}`}>
-            Fecha: <strong>{test.date}</strong>
+            Fecha: <strong>{formatDisplayDate(test.date)}</strong>
           </p>
           {hasDistance ? (
             <p className={`mt-0.5 text-xs ${classes.label}`}>

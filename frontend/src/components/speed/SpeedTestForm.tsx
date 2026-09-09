@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createSpeedTest } from "@/lib/api/speed";
 import { SPEED_TEST_DISTANCE_PRESETS } from "@/lib/constants";
-import { getTodayDate, isFutureDate } from "@/lib/date";
+import { formatDisplayDate, getTodayDate, isFutureDate } from "@/lib/date";
 import { formatPaceWithUnit } from "@/lib/units";
 import { calculateVelKmh } from "@/lib/speedCalc";
 
@@ -21,6 +21,8 @@ interface SpeedTestResponse {
   distancia_m: number;
   tiempo_s: number;
   vel_kmh: number;
+  velocidad_pico_kmh: number | null;
+  mss_kmh: number;
   ritmo_str: string;
   notes: string | null;
 }
@@ -28,7 +30,7 @@ interface SpeedTestResponse {
 const DESCRIPTION = {
   title: "Test de Velocidad (MSS)",
   description:
-    "Ingresá la distancia en metros y el tiempo en segundos (cualquier valor válido). Podés usar los atajos o escribir una distancia personalizada. La app calcula la velocidad máxima en km/h y el ritmo equivalente.",
+    "Ingresá la distancia en metros y el tiempo en segundos (cualquier valor válido). Podés usar los atajos o escribir una distancia personalizada. La app calcula la velocidad promedio en km/h y el ritmo equivalente. Opcionalmente podés cargar la velocidad pico medida con radar, GPS u otra tecnología.",
 };
 
 function extractErrorMessage(error: unknown) {
@@ -51,6 +53,7 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
   const [distancia_m, setDistancia_m] = useState<string>("30");
   const [tiempo_s, setTiempo_s] = useState<string>("4");
   const [date, setDate] = useState(getTodayDate);
+  const [velocidadPico, setVelocidadPico] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -63,6 +66,12 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
 
   const parsedDistancia = useMemo(() => Number(distancia_m.replace(",", ".")), [distancia_m]);
   const parsedTiempo = useMemo(() => Number(tiempo_s.replace(",", ".")), [tiempo_s]);
+  const parsedVelocidadPico = useMemo(() => {
+    const trimmed = velocidadPico.trim();
+    if (trimmed === "") return null;
+    const value = Number(trimmed.replace(",", "."));
+    return Number.isFinite(value) && value > 0 ? value : Number.NaN;
+  }, [velocidadPico]);
 
   const velKmhPreview = useMemo(
     () => calculateVelKmh(parsedDistancia, parsedTiempo),
@@ -129,6 +138,11 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
       return;
     }
 
+    if (velocidadPico.trim() !== "" && !Number.isFinite(parsedVelocidadPico)) {
+      setError("Ingresá una velocidad pico válida en km/h, o dejá el campo vacío.");
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -138,13 +152,18 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
         parsedDistancia,
         parsedTiempo,
         notes.trim() || null,
+        parsedVelocidadPico,
       );
       setCreatedTest(data);
+      const mssLabel = data.velocidad_pico_kmh
+        ? `MSS usada: ${data.mss_kmh.toFixed(2)} km/h (pico)`
+        : `MSS usada: ${data.mss_kmh.toFixed(2)} km/h (promedio)`;
       setSuccess(
-        `✅ Test guardado. Velocidad máxima: ${data.vel_kmh.toFixed(2)} km/h · Ritmo: ${formatPaceWithUnit(data.ritmo_str)}`,
+        `✅ Test guardado. Promedio: ${data.vel_kmh.toFixed(2)} km/h · ${mssLabel} · Ritmo: ${formatPaceWithUnit(data.ritmo_str)}`,
       );
       setDistancia_m("30");
       setTiempo_s("4");
+      setVelocidadPico("");
       setNotes("");
       setDate(getTodayDate());
       if (onSuccess) onSuccess();
@@ -237,7 +256,7 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
       {velKmhPreview !== null ? (
         <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-indigo-700">
-            Velocidad máxima calculada
+            Velocidad promedio calculada
           </p>
           <p className="mt-1 text-2xl font-semibold text-indigo-900">
             {velKmhPreview.toFixed(2)} <span className="text-base font-medium">km/h</span>
@@ -248,9 +267,28 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
         </div>
       ) : (
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-          Completá distancia y tiempo válidos para ver la velocidad máxima en km/h.
+          Completá distancia y tiempo válidos para ver la velocidad promedio en km/h.
         </div>
       )}
+
+      <div>
+        <label htmlFor="speed-test-pico" className="block text-xs text-slate-500 mb-2">
+          Velocidad Pico (km/h) — opcional
+        </label>
+        <input
+          id="speed-test-pico"
+          type="number"
+          min="0"
+          step="any"
+          value={velocidadPico}
+          onChange={(event) => setVelocidadPico(event.target.value)}
+          placeholder="Ej: 32.5 (radar, GPS, etc.)"
+          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          Si la cargás, se usa como MSS en ASR, Tempo/RST/SIT y tabla nacional (en lugar del promedio calculado).
+        </p>
+      </div>
 
       <div>
         <label className="block text-xs text-slate-500 mb-2">Notas (opcional)</label>
@@ -287,9 +325,13 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
           <p className="font-medium text-slate-900">Resultado del test registrado</p>
           <p>Distancia: {createdTest.distancia_m} m</p>
           <p>Tiempo: {createdTest.tiempo_s} s</p>
-          <p>Fecha: {createdTest.date}</p>
-          <p>Velocidad máxima: {createdTest.vel_kmh.toFixed(2)} km/h</p>
-          <p>Ritmo: {formatPaceWithUnit(createdTest.ritmo_str)}</p>
+          <p>Fecha: {formatDisplayDate(createdTest.date)}</p>
+          <p>Velocidad promedio: {createdTest.vel_kmh.toFixed(2)} km/h</p>
+          {createdTest.velocidad_pico_kmh ? (
+            <p>Velocidad pico: {createdTest.velocidad_pico_kmh.toFixed(2)} km/h</p>
+          ) : null}
+          <p>MSS usada: {createdTest.mss_kmh.toFixed(2)} km/h</p>
+          <p>Ritmo (promedio): {formatPaceWithUnit(createdTest.ritmo_str)}</p>
         </div>
       )}
     </form>
@@ -305,7 +347,7 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
         <div>
           <h3 className="text-base font-semibold text-slate-900">Formulario de Test de Velocidad</h3>
           <p className="mt-1 text-sm text-slate-500">
-            Registrá una prueba de velocidad máxima sostenida y obtené los resultados oficiales.
+            Registrá una prueba de velocidad y obtené el promedio calculado, con MSS opcional por velocidad pico.
           </p>
         </div>
       </div>

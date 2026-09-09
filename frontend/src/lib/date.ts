@@ -22,7 +22,17 @@ export function isFutureDate(dateStr: string): boolean {
   return parseLocalDate(dateStr) > startOfToday();
 }
 
-export function formatChartDate(dateStr: string): string {
+/** Formato fijo argentino DD/MM/AAAA (sin depender del locale del navegador). */
+export function formatDisplayDate(dateStr: string): string {
+  if (!dateStr.trim()) return "";
   const d = parseLocalDate(dateStr);
-  return d.toLocaleDateString("es-AR", { month: "short", day: "numeric" });
+  if (isNaN(d.getTime())) return dateStr;
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+export function formatChartDate(dateStr: string): string {
+  return formatDisplayDate(dateStr);
 }

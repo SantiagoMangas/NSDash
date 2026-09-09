@@ -80,7 +80,8 @@ class SpeedTest(Base):
     date = Column(Date, nullable=False)
     distancia_m = Column(Float, nullable=False)
     tiempo_s = Column(Float, nullable=False)
-    vel_kmh = Column(Float, nullable=False)
+    vel_kmh = Column(Float, nullable=False)  # velocidad promedio calculada (dist/tiempo)
+    velocidad_pico_kmh = Column(Float, nullable=True)  # opcional: radar/GPS u otra tecnología
     notes = Column(String, nullable=True)
 
 

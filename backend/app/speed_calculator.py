@@ -27,3 +27,10 @@ def calculate_vel_kmh(distancia_m: float, tiempo_s: float) -> float:
 
     vel_kmh = (distancia_m / tiempo_s) * 3.6
     return round(vel_kmh, 2)
+
+
+def effective_mss_kmh(vel_promedio_kmh: float, velocidad_pico_kmh: float | None) -> float:
+    """MSS efectiva: velocidad pico si fue cargada; si no, el promedio calculado."""
+    if velocidad_pico_kmh is not None and math.isfinite(velocidad_pico_kmh) and velocidad_pico_kmh > 0:
+        return round(velocidad_pico_kmh, 2)
+    return vel_promedio_kmh

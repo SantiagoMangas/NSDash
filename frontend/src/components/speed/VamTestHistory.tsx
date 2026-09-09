@@ -5,6 +5,7 @@ import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import ZonesTable from "@/components/speed/ZonesTable";
 import { getVamTest, getVamTests, deleteVamTest } from "@/lib/api/vam";
+import { formatDisplayDate } from "@/lib/date";
 import { formatPaceWithUnit } from "@/lib/units";
 import { formatSecondsToPace, parseApiError } from "@/lib/utils";
 import type { VelocityZone } from "@/lib/types";
@@ -182,7 +183,7 @@ export function VamTestHistory({
                 const isBest = test.id === bestTestId;
                 return (
                   <tr key={test.id} className={isBest ? "bg-emerald-50" : "bg-white"}>
-                    <td className="px-4 py-3">{new Date(test.date).toLocaleDateString("es-AR")}</td>
+                    <td className="px-4 py-3">{formatDisplayDate(test.date)}</td>
                     <td className="px-4 py-3">{TEST_LABELS[test.test_type] ?? test.test_type}</td>
                     <td className="px-4 py-3 font-semibold text-slate-900">{test.vam_kmh.toFixed(2)}</td>
                     <td className="px-4 py-3">{formatPaceWithUnit(test.ritmo_str)}</td>
@@ -222,7 +223,7 @@ export function VamTestHistory({
             <div>
               <h3 className="text-base font-semibold text-slate-900">Zonas del test</h3>
               <p className="text-sm text-slate-600">
-                {TEST_LABELS[selectedTest.test_type] ?? selectedTest.test_type} · {new Date(selectedTest.date).toLocaleDateString("es-AR")}
+                {TEST_LABELS[selectedTest.test_type] ?? selectedTest.test_type} · {formatDisplayDate(selectedTest.date)}
               </p>
             </div>
             <button

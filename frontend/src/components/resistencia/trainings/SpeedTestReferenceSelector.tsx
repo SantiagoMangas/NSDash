@@ -6,6 +6,7 @@ import {
   setPreferredSpeedTest,
   type SpeedTestSummary,
 } from "@/lib/api/speed";
+import { formatDisplayDate } from "@/lib/date";
 
 const AUTO_VALUE = "auto";
 
@@ -18,7 +19,7 @@ type Props = {
 };
 
 function formatTestLabel(test: SpeedTestSummary) {
-  return `${test.date} · ${test.vel_kmh.toFixed(2)} km/h`;
+  return `${formatDisplayDate(test.date)} · ${test.mss_kmh.toFixed(2)} km/h MSS`;
 }
 
 function extractErrorMessage(error: unknown) {
@@ -68,7 +69,7 @@ export function SpeedTestReferenceSelector({
         if (!cancelled) {
           setSpeedTests(
             [...tests].sort((a, b) => {
-              if (b.vel_kmh !== a.vel_kmh) return b.vel_kmh - a.vel_kmh;
+              if (b.mss_kmh !== a.mss_kmh) return b.mss_kmh - a.mss_kmh;
               return b.date.localeCompare(a.date);
             }),
           );

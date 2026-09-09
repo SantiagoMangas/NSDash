@@ -67,6 +67,10 @@ ATHLETE_PROFILE_COLUMNS: dict[str, str] = {
     "preferred_speed_test_id": "INTEGER",
 }
 
+SPEED_TEST_COLUMNS: dict[str, str] = {
+    "velocidad_pico_kmh": "FLOAT",
+}
+
 PERCENTAGE_MAP = {
     1: 100.0,
     2: 97.5,
@@ -90,6 +94,18 @@ def migrate_athlete_profile_columns() -> None:
             if column_name not in existing_columns:
                 connection.execute(
                     text(f"ALTER TABLE athletes ADD COLUMN {column_name} {column_type}")
+                )
+
+
+def migrate_speed_test_columns() -> None:
+    existing_columns = {
+        column["name"] for column in inspect(engine).get_columns("speed_tests")
+    }
+    with engine.begin() as connection:
+        for column_name, column_type in SPEED_TEST_COLUMNS.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    text(f"ALTER TABLE speed_tests ADD COLUMN {column_name} {column_type}")
                 )
 
 
@@ -146,6 +162,7 @@ def on_startup() -> None:
     log_db_startup_info()
     Base.metadata.create_all(bind=engine)
     migrate_athlete_profile_columns()
+    migrate_speed_test_columns()
     with SessionLocal() as db:
         if db.query(models.User).count() == 0:
             db.add(
@@ -999,7 +1016,7 @@ def get_velocity_dashboard(
             if not reference_speed_test:
                 raise HTTPException(status_code=404, detail="No tests found for athlete")
 
-            vel_kmh = reference_speed_test.vel_kmh
+            vel_kmh = speed_test_mss_kmh(reference_speed_test)
             vel_mpm = (vel_kmh * 1000) / 60
             vel_ms = vel_kmh / 3.6
             best_test_data = {
@@ -1076,7 +1093,10 @@ def get_velocity_dashboard(
             "from_30_15": vam_calculator.calculate_interval_table(best_30_15_test.vam_kmh, "30_15") if best_30_15_test else None,
             "from_yoyo": vam_calculator.calculate_interval_table(best_yoyo_test.vam_kmh, "yoyo") if best_yoyo_test else None,
             "from_speed_test": (
-                vam_calculator.calculate_interval_table(reference_speed_test.vel_kmh, "speed_test")
+                vam_calculator.calculate_interval_table(
+                    speed_test_mss_kmh(reference_speed_test),
+                    "speed_test",
+                )
                 if reference_speed_test
                 else None
             ),
@@ -1300,7 +1320,12 @@ def post_calculate_rsa(
 # ─── Speed Test (MSS) Endpoints ─────────────────────────────────
 
 
+def speed_test_mss_kmh(test: models.SpeedTest) -> float:
+    return speed_calculator.effective_mss_kmh(test.vel_kmh, test.velocidad_pico_kmh)
+
+
 def build_speed_test_response(test: models.SpeedTest) -> dict:
+    mss_kmh = speed_test_mss_kmh(test)
     return {
         "id": test.id,
         "athlete_id": test.athlete_id,
@@ -1308,13 +1333,15 @@ def build_speed_test_response(test: models.SpeedTest) -> dict:
         "distancia_m": test.distancia_m,
         "tiempo_s": test.tiempo_s,
         "vel_kmh": test.vel_kmh,
+        "velocidad_pico_kmh": test.velocidad_pico_kmh,
+        "mss_kmh": mss_kmh,
         "ritmo_str": vam_calculator._format_pace_from_kmh(test.vel_kmh),
         "notes": test.notes,
     }
 
 
 def get_best_speed_test(tests: list[models.SpeedTest]) -> models.SpeedTest:
-    return max(tests, key=lambda test: (test.vel_kmh, test.date))
+    return max(tests, key=lambda test: (speed_test_mss_kmh(test), test.date))
 
 
 def query_best_30_15_test(db: Session, athlete_id: int) -> models.VamTest | None:
@@ -1368,7 +1395,7 @@ def get_athlete_asr(
             "comparativa_por_srr": None,
         }
 
-    mss_kmh = best_speed_test.vel_kmh
+    mss_kmh = speed_test_mss_kmh(best_speed_test)
     ift_kmh = best_30_15_test.vam_kmh
 
     try:
@@ -1420,7 +1447,7 @@ def build_national_table_row(athlete: models.Athlete, db: Session, pct_srr: floa
             "pct_srr": None,
         }
 
-    mss_kmh = best_speed_test.vel_kmh
+    mss_kmh = speed_test_mss_kmh(best_speed_test)
     ift_kmh = best_30_15_test.vam_kmh
     asr_kmh = asr_calculator.calculate_asr(mss_kmh, ift_kmh)
     from_srr = asr_calculator.calculate_from_pct_srr(mss_kmh, ift_kmh, asr_kmh, pct_srr)
@@ -1628,6 +1655,7 @@ def create_speed_test(
         distancia_m=data.distancia_m,
         tiempo_s=data.tiempo_s,
         vel_kmh=vel_kmh,
+        velocidad_pico_kmh=data.velocidad_pico_kmh,
         notes=data.notes,
     )
     db.add(db_speed_test)
@@ -1655,18 +1683,7 @@ def list_speed_tests(
         .all()
     )
 
-    return [
-        {
-            "id": test.id,
-            "athlete_id": test.athlete_id,
-            "date": test.date,
-            "distancia_m": test.distancia_m,
-            "tiempo_s": test.tiempo_s,
-            "vel_kmh": test.vel_kmh,
-            "ritmo_str": vam_calculator._format_pace_from_kmh(test.vel_kmh),
-        }
-        for test in tests
-    ]
+    return [build_speed_test_response(test) for test in tests]
 
 
 @app.delete("/speed-tests/{test_id}")

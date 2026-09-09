@@ -66,6 +66,8 @@ export type SpeedTestSummary = {
   distancia_m: number;
   tiempo_s: number;
   vel_kmh: number;
+  velocidad_pico_kmh: number | null;
+  mss_kmh: number;
   ritmo_str: string;
 };
 
@@ -93,6 +95,7 @@ export async function createSpeedTest(
   distancia_m: number,
   tiempo_s: number,
   notes: string | null,
+  velocidad_pico_kmh?: number | null,
 ): Promise<any> {
   return post("/speed-tests", {
     athlete_id: athleteId,
@@ -100,6 +103,7 @@ export async function createSpeedTest(
     distancia_m,
     tiempo_s,
     notes,
+    velocidad_pico_kmh: velocidad_pico_kmh ?? null,
   });
 }
 

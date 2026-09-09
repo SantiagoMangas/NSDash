@@ -242,7 +242,7 @@ export function AsrSection({ athleteId, refreshKey = 0 }: Props) {
               <p className="mt-1 text-2xl font-semibold text-slate-900">
                 {mssKmh.toFixed(2)} <span className="text-sm font-normal">km/h</span>
               </p>
-              <p className="mt-1 text-xs text-slate-500">Velocidad máxima (Speed Test)</p>
+              <p className="mt-1 text-xs text-slate-500">MSS (Speed Test)</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-500">IFT</p>

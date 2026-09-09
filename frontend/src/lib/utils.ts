@@ -44,6 +44,25 @@ export function formatSecondsToPace(seconds: number): string {
   return `${minutes}:${remaining.toString().padStart(2, "0")}`;
 }
 
+export function decimalMinutesFromParts(minutes: number, seconds: number): number {
+  return minutes + seconds / 60;
+}
+
+export function parseDurationParts(minutesStr: string, secondsStr: string): number | null {
+  const minutes = Number(minutesStr.trim());
+  const seconds = Number(secondsStr.trim());
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+    return null;
+  }
+  if (minutes < 0 || seconds < 0 || seconds >= 60) {
+    return null;
+  }
+  if (minutes === 0 && seconds === 0) {
+    return null;
+  }
+  return decimalMinutesFromParts(minutes, seconds);
+}
+
 export function parseMpmInput(raw: string): number | null {
   const trimmed = raw.trim();
   if (trimmed === "") return null;

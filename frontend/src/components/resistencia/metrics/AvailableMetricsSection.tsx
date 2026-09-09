@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { LoadingCard } from "@/components/ui/LoadingCard";
+import { formatDisplayDate } from "@/lib/date";
 import { formatTestTypeLabel, getBestTestMetricLabel, getLatestTestMetricLabel } from "@/lib/resistencia/constants";
 import type { VelocityDashboard, VamProgress } from "@/lib/types";
 import { VamProgressChart } from "./VamProgressChart";
@@ -92,7 +93,7 @@ export function AvailableMetricsSection({ dashboard, progress, loading, error }:
                 {dashboard.best_test.vam_kmh.toFixed(2)} <span className="text-sm font-normal">km/h</span>
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                {formatTestTypeLabel(dashboard.best_test.test_type)} · {dashboard.best_test.date}
+                {formatTestTypeLabel(dashboard.best_test.test_type)} · {formatDisplayDate(dashboard.best_test.date)}
               </p>
             </div>
 
@@ -106,7 +107,7 @@ export function AvailableMetricsSection({ dashboard, progress, loading, error }:
               </p>
               {latestTest && (
                 <p className="mt-1 text-xs text-slate-500">
-                  {formatTestTypeLabel(latestTest.test_type)} · {latestTest.date}
+                  {formatTestTypeLabel(latestTest.test_type)} · {formatDisplayDate(latestTest.date)}
                 </p>
               )}
             </div>

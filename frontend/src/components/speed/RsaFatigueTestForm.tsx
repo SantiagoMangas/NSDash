@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRsaFatigueTest } from "@/lib/api/speed";
-import { getTodayDate, isFutureDate } from "@/lib/date";
+import { formatDisplayDate, getTodayDate, isFutureDate } from "@/lib/date";
 import { parseApiError } from "@/lib/utils";
 import { RsaFatiguePreviewCard } from "@/components/speed/RsaFatiguePreviewCard";
 
@@ -388,7 +388,7 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
         <div className="space-y-3">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 space-y-1">
             <p className="font-medium text-slate-900">Resultado del test registrado</p>
-            <p>Fecha: {createdTest.date}</p>
+            <p>Fecha: {formatDisplayDate(createdTest.date)}</p>
             <p>Sprints: {createdTest.cantidad_sprints}</p>
             <p>Mejor tiempo: {createdTest.mejor_tiempo.toFixed(2)} s</p>
             <p>Peor tiempo: {createdTest.peor_tiempo.toFixed(2)} s</p>

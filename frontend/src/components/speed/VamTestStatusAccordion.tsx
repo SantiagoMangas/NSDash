@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getVamTests } from "@/lib/api/vam";
+import { formatDisplayDate } from "@/lib/date";
 
 interface VamTestStatus {
   vam_2000m: { active: boolean; last_date?: string; last_vam?: number };
@@ -99,11 +100,6 @@ export function VamTestStatusAccordion({ athleteId, authToken }: Props) {
     fetchVamTests();
   }, [athleteId, authToken]);
 
-  const formatDate = (dateStr: string) => {
-    const [year, month, day] = dateStr.split("-");
-    return `${day}/${month}/${year}`;
-  };
-
   return (
     <div className="border border-gray-200 rounded-lg mt-4">
       {/* Header */}
@@ -168,7 +164,7 @@ export function VamTestStatusAccordion({ athleteId, authToken }: Props) {
                   </div>
                   {isActive && status.last_date && status.last_vam && (
                     <p className="text-xs text-slate-400 mt-1">
-                      Último: {formatDate(status.last_date)} — VAM:{" "}
+                      Último: {formatDisplayDate(status.last_date)} — VAM:{" "}
                       {status.last_vam} km/h
                     </p>
                   )}

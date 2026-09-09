@@ -1,3 +1,4 @@
+import { formatDisplayDate } from "@/lib/date";
 import type { SprintLog } from "@/lib/types";
 
 type PRCardProps = {
@@ -27,7 +28,7 @@ export function PRCard({ prs }: PRCardProps) {
             <p className="mb-1 text-xs font-medium text-emerald-600">{pr.distance}m</p>
             <p className="text-2xl font-bold text-emerald-700">{pr.time_seconds.toFixed(2)}s</p>
             <p className="mt-1 text-xs text-slate-500">
-              {pr.average_speed.toFixed(2)} m/s · {pr.date}
+              {pr.average_speed.toFixed(2)} m/s · {formatDisplayDate(pr.date)}
             </p>
             {pr.improvement_percent !== null && (
               <p className="mt-2 text-xs font-semibold text-emerald-600">
