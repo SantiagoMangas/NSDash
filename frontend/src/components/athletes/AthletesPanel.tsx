@@ -29,7 +29,10 @@ type Props = {
   onRefreshTeams: () => Promise<void>;
   onAthleteDeleted: (id: number) => void;
   onToast: (type: "success" | "error", message: string) => void;
-  /** Si está definido, la lupa navega a la ficha en ruta dedicada (sin accordion). */
+  onOpenFuerza?: (athleteId: number) => void;
+  onOpenResistencia?: (athleteId: number) => void;
+  onOpenFicha?: (athleteId: number) => void;
+  /** Legacy: selección en dashboard monolítico */
   onOpenProfile?: (athleteId: number) => void;
   /** Crear equipos desde /equipos; oculto en /atletas. */
   enableTeamCreate?: boolean;
@@ -54,6 +57,9 @@ export function AthletesPanel({
   onRefreshTeams,
   onAthleteDeleted,
   onToast,
+  onOpenFuerza,
+  onOpenResistencia,
+  onOpenFicha,
   onOpenProfile,
   enableTeamCreate = true,
 }: Props) {
@@ -111,7 +117,9 @@ export function AthletesPanel({
       await onRefreshAthletes();
       if (created && typeof created === "object" && typeof (created as Athlete).id === "number") {
         const id = (created as Athlete).id;
-        if (onOpenProfile) {
+        if (onOpenFuerza) {
+          onOpenFuerza(id);
+        } else if (onOpenProfile) {
           onOpenProfile(id);
         } else {
           onSelectAthlete(id);
@@ -279,24 +287,61 @@ export function AthletesPanel({
                     </p>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    <button
-                      type="button"
-                      aria-label="Ver ficha completa"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (onOpenProfile) {
+                    {onOpenFuerza && (
+                      <button
+                        type="button"
+                        title="Abrir en Fuerza"
+                        aria-label="Abrir en Fuerza"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenFuerza(athlete.id);
+                        }}
+                        className="p-2 rounded-lg text-base hover:bg-indigo-50 transition"
+                      >
+                        💪
+                      </button>
+                    )}
+                    {onOpenResistencia && (
+                      <button
+                        type="button"
+                        title="Abrir en Velocidad y resistencia"
+                        aria-label="Abrir en resistencia"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenResistencia(athlete.id);
+                        }}
+                        className="p-2 rounded-lg text-base hover:bg-amber-50 transition"
+                      >
+                        ⚡
+                      </button>
+                    )}
+                    {onOpenFicha && (
+                      <button
+                        type="button"
+                        title="Ver ficha del atleta"
+                        aria-label="Ver ficha del atleta"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenFicha(athlete.id);
+                        }}
+                        className="p-2 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-slate-100 transition text-sm font-medium"
+                      >
+                        Ficha
+                      </button>
+                    )}
+                    {!onOpenFuerza && onOpenProfile && (
+                      <button
+                        type="button"
+                        aria-label="Seleccionar atleta"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           onOpenProfile(athlete.id);
-                        } else {
-                          onSelectAthlete(athlete.id);
-                        }
-                      }}
-                      className="p-2 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="11" cy="11" r="7" />
-                        <path d="M20 20l-4-4" />
-                      </svg>
-                    </button>
+                        }}
+                        className="p-2 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
+                      >
+                        →
+                      </button>
+                    )}
                     <button
                       type="button"
                       aria-label="Editar atleta"

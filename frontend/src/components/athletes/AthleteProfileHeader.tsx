@@ -12,6 +12,7 @@ import { AthleteEditModal } from "./AthleteEditModal";
 type Props = {
   athlete: Athlete;
   teams: Team[];
+  defaultCollapsed?: boolean;
   onAthleteUpdated: () => void;
   onAthleteDeleted: () => void;
   onToast: (type: "success" | "error", message: string) => void;
@@ -25,10 +26,12 @@ function display(value: string | number | null | undefined, suffix = ""): string
 export function AthleteProfileHeader({
   athlete,
   teams,
+  defaultCollapsed = false,
   onAthleteUpdated,
   onAthleteDeleted,
   onToast,
 }: Props) {
+  const [expanded, setExpanded] = useState(!defaultCollapsed);
   const [editOpen, setEditOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const { firstName, lastName } = splitAthleteName(athlete.name);
@@ -55,8 +58,12 @@ export function AthleteProfileHeader({
   };
 
   return (
-    <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+    <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex flex-wrap items-center justify-between gap-4 p-5 text-left hover:bg-slate-50/80 transition"
+      >
         <div className="flex items-center gap-4 min-w-0">
           <div className="w-14 h-14 rounded-full bg-slate-200 flex-shrink-0 overflow-hidden flex items-center justify-center text-sm font-semibold text-slate-600">
             {athlete.photo_url ? (
@@ -73,15 +80,21 @@ export function AthleteProfileHeader({
             <p className="text-sm text-slate-500 mt-0.5">
               {display(athlete.sport)}
               {athlete.position_name ? ` · ${athlete.position_name}` : ""}
+              <span className="text-slate-400"> · {expanded ? "Ocultar ficha" : "Ver ficha"}</span>
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <span className="text-slate-400 text-lg" aria-hidden="true">{expanded ? "▴" : "▾"}</span>
+      </button>
+
+      {expanded && (
+      <div className="px-6 pb-6 border-t border-slate-100 pt-5">
+      <div className="flex flex-wrap items-center justify-end gap-2 mb-4">
           <Link
             href="/atletas"
             className="text-sm font-medium px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
           >
-            ← Volver a la lista
+            ← Lista de atletas
           </Link>
           <button
             type="button"
@@ -94,7 +107,6 @@ export function AthleteProfileHeader({
               <path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z" />
             </svg>
           </button>
-        </div>
       </div>
 
       <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4 text-sm">
@@ -146,6 +158,8 @@ export function AthleteProfileHeader({
           setEditOpen(false);
         }}
       />
+      </div>
+      )}
     </section>
   );
 }
