@@ -22,11 +22,19 @@ class UserResponse(BaseModel):
 
 class AthleteCreate(BaseModel):
     name: str
+    team_id: Optional[int] = None
     sport: Optional[str] = Field(default=None, max_length=100)
+    sport_id: Optional[int] = None
+    position_id: Optional[int] = None
     height_cm: Optional[float] = None
     body_weight_kg: Optional[float] = None
     goal: Optional[str] = Field(default=None, max_length=500)
     notes: Optional[str] = None
+    birth_date: Optional[Date] = None
+    injuries: Optional[str] = None
+    email: str = Field(..., max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    photo_url: Optional[str] = Field(default=None, max_length=2048)
 
     @field_validator("name")
     @classmethod
@@ -34,6 +42,16 @@ class AthleteCreate(BaseModel):
         stripped = value.strip()
         if not stripped:
             raise ValueError("El nombre no puede estar vacío")
+        return stripped
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El email es obligatorio")
+        if "@" not in stripped or stripped.startswith("@") or stripped.endswith("@"):
+            raise ValueError("Ingresá un email válido")
         return stripped
 
     @field_validator("height_cm")
@@ -61,11 +79,19 @@ class AthleteCreate(BaseModel):
 
 class AthleteUpdate(BaseModel):
     name: Optional[str] = None
+    team_id: Optional[int] = None
     sport: Optional[str] = Field(default=None, max_length=100)
+    sport_id: Optional[int] = None
+    position_id: Optional[int] = None
     height_cm: Optional[float] = None
     body_weight_kg: Optional[float] = None
     goal: Optional[str] = Field(default=None, max_length=500)
     notes: Optional[str] = None
+    birth_date: Optional[Date] = None
+    injuries: Optional[str] = None
+    email: Optional[str] = Field(default=None, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    photo_url: Optional[str] = Field(default=None, max_length=2048)
 
     @field_validator("name")
     @classmethod
@@ -75,6 +101,18 @@ class AthleteUpdate(BaseModel):
         stripped = value.strip()
         if not stripped:
             raise ValueError("El nombre no puede estar vacío")
+        return stripped
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El email no puede estar vacío")
+        if "@" not in stripped or stripped.startswith("@") or stripped.endswith("@"):
+            raise ValueError("Ingresá un email válido")
         return stripped
 
     @field_validator("height_cm")
@@ -104,11 +142,121 @@ class AthleteResponse(BaseModel):
     id: int
     name: str
     coach_id: int
+    team_id: Optional[int] = None
     sport: Optional[str] = None
+    sport_id: Optional[int] = None
+    position_id: Optional[int] = None
+    position_name: Optional[str] = None
     height_cm: Optional[float] = None
     body_weight_kg: Optional[float] = None
     goal: Optional[str] = None
     notes: Optional[str] = None
+    birth_date: Optional[Date] = None
+    age: Optional[int] = None
+    injuries: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    photo_url: Optional[str] = None
+
+
+class TeamCreate(BaseModel):
+    name: str
+    image_url: Optional[str] = Field(default=None, max_length=2048)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El nombre no puede estar vacío")
+        return stripped
+
+
+class TeamUpdate(BaseModel):
+    name: Optional[str] = None
+    image_url: Optional[str] = Field(default=None, max_length=2048)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El nombre no puede estar vacío")
+        return stripped
+
+
+class TeamResponse(BaseModel):
+    id: int
+    coach_id: int
+    name: str
+    image_url: Optional[str] = None
+
+
+class SportCreate(BaseModel):
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El nombre no puede estar vacío")
+        return stripped
+
+
+class SportUpdate(BaseModel):
+    name: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El nombre no puede estar vacío")
+        return stripped
+
+
+class SportResponse(BaseModel):
+    id: int
+    name: str
+
+
+class PositionCreate(BaseModel):
+    sport_id: int
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El nombre no puede estar vacío")
+        return stripped
+
+
+class PositionUpdate(BaseModel):
+    name: Optional[str] = None
+    sport_id: Optional[int] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El nombre no puede estar vacío")
+        return stripped
+
+
+class PositionResponse(BaseModel):
+    id: int
+    sport_id: int
+    name: str
 
 
 class ExerciseResponse(BaseModel):

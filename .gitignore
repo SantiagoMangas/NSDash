@@ -12,3 +12,6 @@ backend/data/
 # Environment
 .env
 .env.*
+
+# Local capture output (scripts stay in repo)
+frontend/nico-screenshots/

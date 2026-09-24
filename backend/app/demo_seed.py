@@ -5,7 +5,8 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from .auth import hash_password
-from .models import Athlete, RsaFatigueTest, RsaSprintTime, SpeedTest, TrainingLog, User, VamTest
+from .models import Athlete, Exercise, RsaFatigueTest, RsaSprintTime, SpeedTest, TrainingLog, User, VamTest
+from .strength_rm import compute_estimated_rm
 from .rsa_calculator import calculate_rsa_fatigue_index
 from .speed_calculator import calculate_vel_kmh
 from .vam_calculator import calculate_vam_from_test
@@ -204,10 +205,6 @@ RESISTENCIA_RSA_TESTS: dict[str, list[tuple[int, list[float], float | None, floa
         (18, [7.2, 7.5, 7.8, 8.0, 8.3], 30.0, 25.0, "RSA 5x30m — fatiga progresiva"),
     ],
 }
-
-
-def estimated_rm(weight: float, reps: int) -> float:
-    return round(weight * (1 + reps / 30), 2)
 
 
 def has_demo_data(db: Session, admin_email: str = ADMIN_EMAIL) -> bool:
@@ -432,6 +429,11 @@ def seed_demo_data(db: Session, admin_email: str = ADMIN_EMAIL) -> tuple[int, in
             if duplicate:
                 continue
 
+            exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
+            if exercise is None:
+                continue
+            rm = round(compute_estimated_rm(weight, reps, exercise), 2)
+
             db.add(
                 TrainingLog(
                     athlete_id=athlete.id,
@@ -439,7 +441,7 @@ def seed_demo_data(db: Session, admin_email: str = ADMIN_EMAIL) -> tuple[int, in
                     date=log_date,
                     weight=weight,
                     reps=reps,
-                    estimated_rm=estimated_rm(weight, reps),
+                    estimated_rm=rm,
                 )
             )
             created_logs += 1

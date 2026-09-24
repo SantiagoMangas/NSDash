@@ -8,7 +8,6 @@ import { useResistenciaData } from "@/hooks/useResistenciaData";
 import { AsrSection } from "./asr/AsrSection";
 import { AvailableMetricsSection } from "./metrics/AvailableMetricsSection";
 import { EvaluationsSection } from "./EvaluationsSection";
-import { NationalTableSection } from "./national/NationalTableSection";
 import { TrainingsSection } from "./trainings/TrainingsSection";
 
 interface Props {
@@ -28,8 +27,6 @@ export function ResistenciaModule({
 
   return (
     <div className="space-y-6">
-      <NationalTableSection refreshKey={historyRefreshKey} />
-
       {athleteId === null ? (
         <EmptyStateCard
           icon={
@@ -39,7 +36,7 @@ export function ResistenciaModule({
             </svg>
           }
           title="Seleccioná un atleta"
-          description="Elegí un atleta arriba para registrar evaluaciones y ver su ficha. La Tabla Nacional del equipo se muestra siempre arriba."
+          description="Elegí un atleta en la lista para registrar evaluaciones y ver su ficha de rendimiento."
         />
       ) : (
         <>

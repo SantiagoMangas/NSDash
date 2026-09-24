@@ -8,9 +8,25 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from . import asr_calculator, auth, models, schemas, rsa_calculator, speed_calculator, team_grouping, vam_calculator
+from .catalog_seed import seed_sports_catalog
+from .panel_helpers import (
+    athlete_query_with_relations,
+    get_owned_team,
+    migrate_legacy_sport_to_sport_id,
+    serialize_athlete,
+    sync_legacy_sport_string,
+    validate_athlete_relations,
+)
 from .session_calculators import hiit_continuo, hiit_corto, hiit_largo, mas_training, rsa, tempo_run
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
 from .demo_seed import has_demo_data, seed_demo_data, seed_resistencia_demo_data
+from .strength_rm import (
+    apply_exercise_rm_profiles,
+    compute_estimated_rm,
+    get_exercise_for_log,
+    migrate_exercise_rm_columns,
+    recalculate_all_training_logs_rm,
+)
 
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -67,6 +83,17 @@ ATHLETE_PROFILE_COLUMNS: dict[str, str] = {
     "preferred_speed_test_id": "INTEGER",
 }
 
+ATHLETE_PANEL_COLUMNS: dict[str, str] = {
+    "team_id": "INTEGER",
+    "sport_id": "INTEGER",
+    "position_id": "INTEGER",
+    "birth_date": "DATE",
+    "injuries": "TEXT",
+    "email": "VARCHAR(255)",
+    "phone": "VARCHAR(50)",
+    "photo_url": "VARCHAR(2048)",
+}
+
 SPEED_TEST_COLUMNS: dict[str, str] = {
     "velocidad_pico_kmh": "FLOAT",
 }
@@ -91,6 +118,18 @@ def migrate_athlete_profile_columns() -> None:
     }
     with engine.begin() as connection:
         for column_name, column_type in ATHLETE_PROFILE_COLUMNS.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    text(f"ALTER TABLE athletes ADD COLUMN {column_name} {column_type}")
+                )
+
+
+def migrate_athlete_panel_columns() -> None:
+    existing_columns = {
+        column["name"] for column in inspect(engine).get_columns("athletes")
+    }
+    with engine.begin() as connection:
+        for column_name, column_type in ATHLETE_PANEL_COLUMNS.items():
             if column_name not in existing_columns:
                 connection.execute(
                     text(f"ALTER TABLE athletes ADD COLUMN {column_name} {column_type}")
@@ -162,7 +201,9 @@ def on_startup() -> None:
     log_db_startup_info()
     Base.metadata.create_all(bind=engine)
     migrate_athlete_profile_columns()
+    migrate_athlete_panel_columns()
     migrate_speed_test_columns()
+    migrate_exercise_rm_columns()
     with SessionLocal() as db:
         if db.query(models.User).count() == 0:
             db.add(
@@ -174,9 +215,13 @@ def on_startup() -> None:
             )
             db.commit()
         migrate_strength_exercises(db)
+        apply_exercise_rm_profiles(db)
+        recalculate_all_training_logs_rm(db)
+        seed_sports_catalog(db)
         if not has_demo_data(db):
             seed_demo_data(db)
         seed_resistencia_demo_data(db)
+        migrate_legacy_sport_to_sport_id(db)
 
 
 @app.get("/")
@@ -227,28 +272,288 @@ def register(register_request: schemas.LoginRequest, db: Session = Depends(get_d
     return new_user
 
 
+@app.post("/teams", response_model=schemas.TeamResponse)
+def create_team(
+    team: schemas.TeamCreate,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> models.Team:
+    db_team = models.Team(
+        coach_id=current_user,
+        name=team.name,
+        image_url=team.image_url,
+    )
+    db.add(db_team)
+    db.commit()
+    db.refresh(db_team)
+    return db_team
+
+
+@app.get("/teams", response_model=list[schemas.TeamResponse])
+def list_teams(
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> list[models.Team]:
+    return (
+        db.query(models.Team)
+        .filter(models.Team.coach_id == current_user)
+        .order_by(models.Team.name.asc())
+        .all()
+    )
+
+
+@app.patch("/teams/{team_id}", response_model=schemas.TeamResponse)
+def update_team(
+    team_id: int,
+    team_update: schemas.TeamUpdate,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> models.Team:
+    db_team = get_owned_team(db, team_id, current_user)
+    update_data = team_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_team, field, value)
+    db.commit()
+    db.refresh(db_team)
+    return db_team
+
+
+@app.delete("/teams/{team_id}")
+def delete_team(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict[str, str]:
+    db_team = get_owned_team(db, team_id, current_user)
+    db.query(models.Athlete).filter(models.Athlete.team_id == team_id).update(
+        {models.Athlete.team_id: None},
+        synchronize_session=False,
+    )
+    db.delete(db_team)
+    db.commit()
+    return {"detail": "Team deleted"}
+
+
+@app.get("/sports", response_model=list[schemas.SportResponse])
+def list_sports(
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> list[models.Sport]:
+    return db.query(models.Sport).order_by(models.Sport.name.asc()).all()
+
+
+@app.post("/sports", response_model=schemas.SportResponse)
+def create_sport(
+    sport: schemas.SportCreate,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> models.Sport:
+    existing = db.query(models.Sport).filter(models.Sport.name == sport.name).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Sport already exists")
+    db_sport = models.Sport(name=sport.name)
+    db.add(db_sport)
+    db.commit()
+    db.refresh(db_sport)
+    return db_sport
+
+
+@app.patch("/sports/{sport_id}", response_model=schemas.SportResponse)
+def update_sport(
+    sport_id: int,
+    sport_update: schemas.SportUpdate,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> models.Sport:
+    db_sport = db.query(models.Sport).filter(models.Sport.id == sport_id).first()
+    if db_sport is None:
+        raise HTTPException(status_code=404, detail="Sport not found")
+    update_data = sport_update.model_dump(exclude_unset=True)
+    if "name" in update_data and update_data["name"] != db_sport.name:
+        conflict = (
+            db.query(models.Sport)
+            .filter(models.Sport.name == update_data["name"], models.Sport.id != sport_id)
+            .first()
+        )
+        if conflict is not None:
+            raise HTTPException(status_code=409, detail="Sport already exists")
+    for field, value in update_data.items():
+        setattr(db_sport, field, value)
+    db.commit()
+    db.refresh(db_sport)
+    return db_sport
+
+
+@app.delete("/sports/{sport_id}")
+def delete_sport(
+    sport_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict[str, str]:
+    db_sport = db.query(models.Sport).filter(models.Sport.id == sport_id).first()
+    if db_sport is None:
+        raise HTTPException(status_code=404, detail="Sport not found")
+    db.query(models.Athlete).filter(models.Athlete.sport_id == sport_id).update(
+        {models.Athlete.sport_id: None},
+        synchronize_session=False,
+    )
+    db.delete(db_sport)
+    db.commit()
+    return {"detail": "Sport deleted"}
+
+
+@app.get("/positions", response_model=list[schemas.PositionResponse])
+def list_positions(
+    sport_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> list[models.Position]:
+    query = db.query(models.Position)
+    if sport_id is not None:
+        if db.query(models.Sport).filter(models.Sport.id == sport_id).first() is None:
+            raise HTTPException(status_code=404, detail="Sport not found")
+        query = query.filter(models.Position.sport_id == sport_id)
+    return query.order_by(models.Position.name.asc()).all()
+
+
+@app.post("/positions", response_model=schemas.PositionResponse)
+def create_position(
+    position: schemas.PositionCreate,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> models.Position:
+    if db.query(models.Sport).filter(models.Sport.id == position.sport_id).first() is None:
+        raise HTTPException(status_code=404, detail="Sport not found")
+    existing = (
+        db.query(models.Position)
+        .filter(
+            models.Position.sport_id == position.sport_id,
+            models.Position.name == position.name,
+        )
+        .first()
+    )
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Position already exists for this sport")
+    db_position = models.Position(sport_id=position.sport_id, name=position.name)
+    db.add(db_position)
+    db.commit()
+    db.refresh(db_position)
+    return db_position
+
+
+@app.patch("/positions/{position_id}", response_model=schemas.PositionResponse)
+def update_position(
+    position_id: int,
+    position_update: schemas.PositionUpdate,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> models.Position:
+    db_position = db.query(models.Position).filter(models.Position.id == position_id).first()
+    if db_position is None:
+        raise HTTPException(status_code=404, detail="Position not found")
+    update_data = position_update.model_dump(exclude_unset=True)
+    next_sport_id = update_data.get("sport_id", db_position.sport_id)
+    next_name = update_data.get("name", db_position.name)
+    if "sport_id" in update_data and (
+        db.query(models.Sport).filter(models.Sport.id == next_sport_id).first() is None
+    ):
+        raise HTTPException(status_code=404, detail="Sport not found")
+    conflict = (
+        db.query(models.Position)
+        .filter(
+            models.Position.sport_id == next_sport_id,
+            models.Position.name == next_name,
+            models.Position.id != position_id,
+        )
+        .first()
+    )
+    if conflict is not None:
+        raise HTTPException(status_code=409, detail="Position already exists for this sport")
+    for field, value in update_data.items():
+        setattr(db_position, field, value)
+    db.commit()
+    db.refresh(db_position)
+    return db_position
+
+
+@app.delete("/positions/{position_id}")
+def delete_position(
+    position_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict[str, str]:
+    db_position = db.query(models.Position).filter(models.Position.id == position_id).first()
+    if db_position is None:
+        raise HTTPException(status_code=404, detail="Position not found")
+    db.query(models.Athlete).filter(models.Athlete.position_id == position_id).update(
+        {models.Athlete.position_id: None},
+        synchronize_session=False,
+    )
+    db.delete(db_position)
+    db.commit()
+    return {"detail": "Position deleted"}
+
+
 @app.post("/athletes", response_model=schemas.AthleteResponse)
 def create_athlete(
     athlete: schemas.AthleteCreate, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
-) -> models.Athlete:
+) -> schemas.AthleteResponse:
+    validate_athlete_relations(
+        db,
+        current_user,
+        athlete.team_id,
+        athlete.sport_id,
+        athlete.position_id,
+    )
     db_athlete = models.Athlete(
         name=athlete.name,
         coach_id=current_user,
+        team_id=athlete.team_id,
+        sport_id=athlete.sport_id,
+        position_id=athlete.position_id,
         sport=athlete.sport,
         height_cm=athlete.height_cm,
         body_weight_kg=athlete.body_weight_kg,
         goal=athlete.goal,
         notes=athlete.notes,
+        birth_date=athlete.birth_date,
+        injuries=athlete.injuries,
+        email=athlete.email,
+        phone=athlete.phone,
+        photo_url=athlete.photo_url,
     )
+    if athlete.sport_id is not None:
+        sync_legacy_sport_string(db, db_athlete)
     db.add(db_athlete)
     db.commit()
     db.refresh(db_athlete)
-    return db_athlete
+    return serialize_athlete(db_athlete, db)
 
 
 @app.get("/athletes", response_model=list[schemas.AthleteResponse])
-def list_athletes(db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)) -> list[models.Athlete]:
-    return db.query(models.Athlete).filter(models.Athlete.coach_id == current_user).all()
+def list_athletes(
+    team_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> list[schemas.AthleteResponse]:
+    athletes = athlete_query_with_relations(db, current_user, team_id).all()
+    return [serialize_athlete(athlete, db) for athlete in athletes]
+
+
+@app.get("/athletes/{athlete_id}", response_model=schemas.AthleteResponse)
+def get_athlete(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> schemas.AthleteResponse:
+    athlete = (
+        athlete_query_with_relations(db, current_user)
+        .filter(models.Athlete.id == athlete_id)
+        .first()
+    )
+    if athlete is None:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+    return serialize_athlete(athlete, db)
 
 
 @app.patch("/athletes/{athlete_id}", response_model=schemas.AthleteResponse)
@@ -257,7 +562,7 @@ def update_athlete(
     athlete_update: schemas.AthleteUpdate,
     db: Session = Depends(get_db),
     current_user: int = Depends(auth.get_current_user),
-) -> models.Athlete:
+) -> schemas.AthleteResponse:
     db_athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
     if db_athlete is None:
         raise HTTPException(status_code=404, detail="Athlete not found")
@@ -265,12 +570,28 @@ def update_athlete(
         raise HTTPException(status_code=403, detail="Access denied")
 
     update_data = athlete_update.model_dump(exclude_unset=True)
+    merged_team_id = update_data["team_id"] if "team_id" in update_data else db_athlete.team_id
+    merged_sport_id = update_data["sport_id"] if "sport_id" in update_data else db_athlete.sport_id
+    merged_position_id = (
+        update_data["position_id"] if "position_id" in update_data else db_athlete.position_id
+    )
+    validate_athlete_relations(
+        db,
+        current_user,
+        merged_team_id,
+        merged_sport_id,
+        merged_position_id,
+    )
+
     for field, value in update_data.items():
         setattr(db_athlete, field, value)
 
+    if db_athlete.sport_id is not None:
+        sync_legacy_sport_string(db, db_athlete)
+
     db.commit()
     db.refresh(db_athlete)
-    return db_athlete
+    return serialize_athlete(db_athlete, db)
 
 
 @app.delete("/athletes/{athlete_id}")
@@ -381,7 +702,10 @@ def create_log(
     if not athlete or athlete.coach_id != current_user:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    estimated_rm = float(log.weight * (1 + log.reps / 30))
+    exercise = get_exercise_for_log(db, log.exercise_id)
+    if exercise is None:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    estimated_rm = compute_estimated_rm(log.weight, log.reps, exercise)
     db_log = models.TrainingLog(
         athlete_id=log.athlete_id,
         exercise_id=log.exercise_id,
@@ -420,7 +744,10 @@ def update_log(
         setattr(db_log, field, value)
 
     if "weight" in update_data or "reps" in update_data:
-        db_log.estimated_rm = float(db_log.weight * (1 + db_log.reps / 30))
+        exercise = get_exercise_for_log(db, db_log.exercise_id)
+        if exercise is None:
+            raise HTTPException(status_code=404, detail="Exercise not found")
+        db_log.estimated_rm = compute_estimated_rm(db_log.weight, db_log.reps, exercise)
 
     db.commit()
     db.refresh(db_log)
@@ -1467,19 +1794,15 @@ def build_national_table_row(athlete: models.Athlete, db: Session, pct_srr: floa
 @app.get("/national-table", response_model=schemas.NationalTableResponse)
 def get_national_table(
     pct_srr: float = Query(default=60),
+    team_id: Optional[int] = Query(default=None),
     db: Session = Depends(get_db),
     current_user: int = Depends(auth.get_current_user),
 ) -> dict:
     """
-    Tabla Nacional del plantel del coach (no hay entidad Team en el modelo:
-    el 'equipo' son todos los atletas con coach_id = usuario actual).
+    Tabla Nacional del plantel del coach. Sin team_id: todos sus atletas.
+    Con team_id: solo atletas de ese equipo (debe pertenecer al coach).
     """
-    athletes = (
-        db.query(models.Athlete)
-        .filter(models.Athlete.coach_id == current_user)
-        .order_by(models.Athlete.name.asc())
-        .all()
-    )
+    athletes = athlete_query_with_relations(db, current_user, team_id).all()
 
     try:
         rows = [build_national_table_row(athlete, db, pct_srr) for athlete in athletes]
@@ -1495,18 +1818,14 @@ def get_national_table(
 @app.get("/national-table/groups", response_model=schemas.NationalTableGroupsResponse)
 def get_national_table_groups(
     pct_srr: float = Query(default=60),
+    team_id: Optional[int] = Query(default=None),
     cantidad_grupos: int = Query(default=3, ge=1),
     diferencia_pct: float = Query(default=5, ge=0),
     db: Session = Depends(get_db),
     current_user: int = Depends(auth.get_current_user),
 ) -> dict:
     """Tabla Nacional + agrupamiento por velocidad de referencia al %SRR."""
-    athletes = (
-        db.query(models.Athlete)
-        .filter(models.Athlete.coach_id == current_user)
-        .order_by(models.Athlete.name.asc())
-        .all()
-    )
+    athletes = athlete_query_with_relations(db, current_user, team_id).all()
 
     try:
         rows = [build_national_table_row(athlete, db, pct_srr) for athlete in athletes]

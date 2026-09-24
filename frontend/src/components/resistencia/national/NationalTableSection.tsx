@@ -9,6 +9,7 @@ import {
 
 type Props = {
   refreshKey?: number;
+  teamId?: number | null;
 };
 
 const DEBOUNCE_MS = 350;
@@ -48,7 +49,7 @@ function formatKmh(value: number | null | undefined): string {
   return value.toFixed(2);
 }
 
-export function NationalTableSection({ refreshKey = 0 }: Props) {
+export function NationalTableSection({ refreshKey = 0, teamId = null }: Props) {
   const [pctSrrInput, setPctSrrInput] = useState(String(DEFAULT_PCT_SRR));
   const [cantidadInput, setCantidadInput] = useState(String(DEFAULT_CANTIDAD_GRUPOS));
   const [diferenciaInput, setDiferenciaInput] = useState(String(DEFAULT_DIFERENCIA_PCT));
@@ -81,7 +82,12 @@ export function NationalTableSection({ refreshKey = 0 }: Props) {
       setError(null);
 
       try {
-        const data = await getNationalTableGroups(nextPctSrr, nextCantidad, nextDiferencia);
+        const data = await getNationalTableGroups(
+          nextPctSrr,
+          nextCantidad,
+          nextDiferencia,
+          teamId,
+        );
         if (requestId !== requestIdRef.current) return;
 
         setAthletes(data.athletes);
@@ -96,7 +102,7 @@ export function NationalTableSection({ refreshKey = 0 }: Props) {
         }
       }
     },
-    [],
+    [teamId],
   );
 
   const scheduleFetch = useCallback(
@@ -124,7 +130,7 @@ export function NationalTableSection({ refreshKey = 0 }: Props) {
     diferenciaRef.current = DEFAULT_DIFERENCIA_PCT;
 
     void fetchGroups(DEFAULT_PCT_SRR, DEFAULT_CANTIDAD_GRUPOS, DEFAULT_DIFERENCIA_PCT);
-  }, [refreshKey, fetchGroups]);
+  }, [refreshKey, teamId, fetchGroups]);
 
   useEffect(() => {
     return () => {

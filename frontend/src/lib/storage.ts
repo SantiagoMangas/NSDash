@@ -3,14 +3,24 @@ import type { DateRange, Module } from "./types";
 
 const PREFIX = "nsdash_";
 
+/** Claves usadas por la app con rutas (y módulos embebidos). */
 export const STORAGE_KEYS = {
-  athleteId: `${PREFIX}athlete_id`,
+  /** Última pestaña Fuerza / Resistencia (lupa en lista + tabs en ficha). */
   module: `${PREFIX}module`,
   exerciseId: `${PREFIX}exercise_id`,
   dateRange: `${PREFIX}date_range`,
   sprintDateRange: `${PREFIX}sprint_date_range`,
   sprintDistance: `${PREFIX}sprint_distance`,
 } as const;
+
+const LEGACY_DASHBOARD_KEYS = [`${PREFIX}athlete_id`, `${PREFIX}team_id`] as const;
+
+/** Limpia selección del dashboard viejo al entrar al shell /atletas|/equipos. */
+export function clearLegacyDashboardSelectionPrefs(): void {
+  for (const key of LEGACY_DASHBOARD_KEYS) {
+    safeRemove(key);
+  }
+}
 
 const DATE_RANGES: DateRange[] = ["7d", "30d", "90d", "all"];
 
@@ -56,13 +66,6 @@ export function readStoredDateRange(key: string): DateRange {
   return isValidDateRange(value) ? value : "all";
 }
 
-export function readStoredAthleteId(): number | null {
-  const raw = safeGet(STORAGE_KEYS.athleteId);
-  if (!raw) return null;
-  const id = Number.parseInt(raw, 10);
-  return Number.isFinite(id) && id > 0 ? id : null;
-}
-
 export function readStoredExerciseId(): number | null {
   const raw = safeGet(STORAGE_KEYS.exerciseId);
   if (!raw) return null;
@@ -76,11 +79,6 @@ export function readStoredSprintDistance(): number | null {
   const distance = Number.parseFloat(raw);
   if (!Number.isFinite(distance)) return null;
   return (SPRINT_DISTANCES as readonly number[]).includes(distance) ? distance : null;
-}
-
-export function persistAthleteId(id: number | null): void {
-  if (id === null) safeRemove(STORAGE_KEYS.athleteId);
-  else safeSet(STORAGE_KEYS.athleteId, String(id));
 }
 
 export function persistModule(module: Module): void {

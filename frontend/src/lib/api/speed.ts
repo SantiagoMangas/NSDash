@@ -156,11 +156,13 @@ export async function getNationalTableGroups(
   pctSrr?: number,
   cantidadGrupos?: number,
   diferenciaPct?: number,
+  teamId?: number | null,
 ): Promise<NationalTableGroupsResponse> {
   const params = new URLSearchParams();
   if (pctSrr !== undefined) params.set("pct_srr", String(pctSrr));
   if (cantidadGrupos !== undefined) params.set("cantidad_grupos", String(cantidadGrupos));
   if (diferenciaPct !== undefined) params.set("diferencia_pct", String(diferenciaPct));
+  if (teamId != null) params.set("team_id", String(teamId));
   const query = params.toString();
   const suffix = query ? `?${query}` : "";
   return get(`/national-table/groups${suffix}`, { cache: "no-store" });

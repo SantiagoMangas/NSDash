@@ -1,11 +1,22 @@
 export type Athlete = {
   id: number;
   name: string;
+  coach_id?: number;
+  team_id?: number | null;
   sport?: string | null;
+  sport_id?: number | null;
+  position_id?: number | null;
+  position_name?: string | null;
   height_cm?: number | null;
   body_weight_kg?: number | null;
   goal?: string | null;
   notes?: string | null;
+  birth_date?: string | null;
+  age?: number | null;
+  injuries?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  photo_url?: string | null;
 };
 
 export type Module = "strength" | "resistencia";
