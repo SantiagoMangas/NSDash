@@ -7,7 +7,6 @@ import { useToast } from "@/contexts/ToastContext";
 import { getAthletes } from "@/lib/api/athletes";
 import { getTeams, type Team } from "@/lib/api/teams";
 import { parseAthlete } from "@/lib/athletes/parseAthlete";
-import { readStoredModule } from "@/lib/storage";
 import type { Athlete } from "@/lib/types";
 
 async function loadAthletes(teamId: number | null): Promise<Athlete[]> {
@@ -77,14 +76,14 @@ export function AtletasListClient() {
     router.replace(query ? `/atletas?${query}` : "/atletas");
   };
 
-  const openProfile = (athleteId: number) => {
-    const module = readStoredModule();
-    const segment = module === "resistencia" ? "resistencia" : "fuerza";
-    router.push(`/atletas/${athleteId}/${segment}`);
-  };
-
   return (
     <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <header className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50 to-white p-5 shadow-sm">
+        <h1 className="text-xl font-bold text-slate-800">Atletas</h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Gestioná el plantel. Usá 💪 o ⚡ para abrir Fuerza o Resistencia con ese atleta.
+        </p>
+      </header>
       <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
         <label htmlFor="team-filter" className="block text-xs text-slate-500 mb-1.5">
           Equipo
@@ -117,9 +116,9 @@ export function AtletasListClient() {
         onRefreshTeams={refreshTeams}
         onAthleteDeleted={() => void refreshAthletes()}
         onToast={(type, message) => pushToast(type, message)}
-        onOpenProfile={(id) => {
-          openProfile(id);
-        }}
+        onOpenFuerza={(id) => router.push(`/fuerza?atleta=${id}`)}
+        onOpenResistencia={(id) => router.push(`/resistencia?atleta=${id}`)}
+        onOpenFicha={(id) => router.push(`/atletas/${id}`)}
         enableTeamCreate={false}
       />
     </main>

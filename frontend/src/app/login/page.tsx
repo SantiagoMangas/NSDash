@@ -14,7 +14,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (getToken()) {
-      router.replace("/atletas");
+      router.replace("/inicio");
     }
   }, [router]);
 
@@ -27,7 +27,7 @@ export default function LoginPage() {
       setToken(data.access_token);
       setEmail("");
       setPassword("");
-      router.replace("/atletas");
+      router.replace("/inicio");
     } catch {
       setError("Email o contraseña incorrectos");
     } finally {

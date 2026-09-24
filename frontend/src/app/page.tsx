@@ -8,7 +8,7 @@ export default function RootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace(getToken() ? "/atletas" : "/login");
+    router.replace(getToken() ? "/inicio" : "/login");
   }, [router]);
 
   return (

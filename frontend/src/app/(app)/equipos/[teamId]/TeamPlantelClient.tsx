@@ -10,7 +10,7 @@ import { useToast } from "@/contexts/ToastContext";
 import { getAthletes } from "@/lib/api/athletes";
 import { getTeams, type Team } from "@/lib/api/teams";
 import { parseAthlete } from "@/lib/athletes/parseAthlete";
-import { readStoredModule } from "@/lib/storage";
+import { AssignAthletesToTeam } from "@/components/teams/AssignAthletesToTeam";
 import type { Athlete } from "@/lib/types";
 
 async function loadAthletes(teamId: number): Promise<Athlete[]> {
@@ -67,12 +67,6 @@ export function TeamPlantelClient({ teamId }: Props) {
     void refreshAthletes();
   }, [refreshAthletes]);
 
-  const openProfile = (athleteId: number) => {
-    const module = readStoredModule();
-    const segment = module === "resistencia" ? "resistencia" : "fuerza";
-    router.push(`/atletas/${athleteId}/${segment}`);
-  };
-
   if (isLoadingTeam) {
     return (
       <main className="max-w-5xl mx-auto px-4 py-8">
@@ -116,6 +110,13 @@ export function TeamPlantelClient({ teamId }: Props) {
         </Link>
       </div>
 
+      <AssignAthletesToTeam
+        teamId={teamId}
+        teamName={team.name}
+        onAssigned={refreshAthletes}
+        onToast={(type, message) => pushToast(type, message)}
+      />
+
       <AthletesPanel
         athletes={athletes}
         teams={teams}
@@ -130,7 +131,9 @@ export function TeamPlantelClient({ teamId }: Props) {
         }}
         onAthleteDeleted={() => void refreshAthletes()}
         onToast={(type, message) => pushToast(type, message)}
-        onOpenProfile={openProfile}
+        onOpenFuerza={(id) => router.push(`/fuerza?atleta=${id}`)}
+        onOpenResistencia={(id) => router.push(`/resistencia?atleta=${id}`)}
+        onOpenFicha={(id) => router.push(`/atletas/${id}`)}
         enableTeamCreate={false}
       />
 
