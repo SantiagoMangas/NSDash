@@ -19,7 +19,7 @@ from .panel_helpers import (
 )
 from .session_calculators import hiit_continuo, hiit_corto, hiit_largo, mas_training, rsa, tempo_run
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
-from .demo_seed import has_demo_data, seed_demo_data, seed_resistencia_demo_data
+from .demo_seed import seed_showcase_data
 from .strength_percentage import (
     apply_exercise_percentage_curves,
     build_percentage_table,
@@ -215,9 +215,7 @@ def on_startup() -> None:
         apply_exercise_percentage_curves(db)
         recalculate_all_training_logs_rm(db)
         seed_sports_catalog(db)
-        if not has_demo_data(db):
-            seed_demo_data(db)
-        seed_resistencia_demo_data(db)
+        seed_showcase_data(db)
         migrate_legacy_sport_to_sport_id(db)
 
 
@@ -869,6 +867,54 @@ def get_athlete_progress(
                 "reps": log.reps,
             }
             for log in logs
+        ],
+    }
+
+
+@app.get("/athletes/{athlete_id}/exercises/{exercise_id}/percentage-table")
+def get_exercise_percentage_table_best_rm(
+    athlete_id: int,
+    exercise_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict[str, object]:
+    """Tabla %RM usando el mejor RM histórico del atleta en el ejercicio (presentación)."""
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    if not athlete or athlete.coach_id != current_user:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    exercise = db.query(models.Exercise).filter(models.Exercise.id == exercise_id).first()
+    if exercise is None:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+
+    logs = (
+        db.query(models.TrainingLog)
+        .filter(
+            models.TrainingLog.athlete_id == athlete_id,
+            models.TrainingLog.exercise_id == exercise_id,
+        )
+        .all()
+    )
+    if not logs:
+        raise HTTPException(status_code=404, detail="No training logs for this exercise")
+
+    best_rm = max(float(log.estimated_rm) for log in logs)
+    percentages = build_percentage_table(best_rm, exercise=exercise)
+
+    return {
+        "exercise": exercise.name,
+        "reference_rm": round(best_rm, 2),
+        "reference_rm_source": "best_historical",
+        "percentage_curve": exercise.percentage_curve,
+        "percentages": [
+            {
+                "percentage": row["percentage"],
+                "reps": row["reps"],
+                "weight": row["weight"],
+                "rir_plus_1": row["rir_plus_1"],
+                "rir_plus_2": row["rir_plus_2"],
+            }
+            for row in percentages
         ],
     }
 

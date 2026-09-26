@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   CartesianGrid,
@@ -36,8 +37,9 @@ import {
 } from "@/lib/api/strength";
 import {
   loadAllLogs,
+  loadBestRmPercentageTable,
   loadProgress,
-  loadSummary,
+  type BestRmPercentageTable,
   type ProgressListItem,
 } from "@/lib/strength/loadStrengthData";
 import {
@@ -49,11 +51,17 @@ import {
 } from "@/lib/storage";
 import type { DateRange } from "@/lib/types";
 import { filterExercisesByName } from "@/lib/strength/exerciseSearch";
+import {
+  formatRelativeStrength,
+  hasBodyWeightForRelative,
+  relativeStrength,
+} from "@/lib/strength/relativeStrength";
 import { parseApiError } from "@/lib/utils";
 
 type Props = {
   athleteId: number | null;
   athleteName: string | null;
+  athleteBodyWeightKg: number | null;
   authToken: string | null;
 };
 
@@ -63,7 +71,12 @@ function parseEjercicioParam(raw: string | null): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
+export function StrengthModule({
+  athleteId,
+  athleteName,
+  athleteBodyWeightKg,
+  authToken,
+}: Props) {
   const { pushToast } = useToast();
   const searchParams = useSearchParams();
   const ejercicioFromUrl = parseEjercicioParam(searchParams.get("ejercicio"));
@@ -77,8 +90,8 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
   const [logs, setLogs] = useState<ProgressListItem[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [logsReloadToken, setLogsReloadToken] = useState(0);
-  const [selectedLogId, setSelectedLogId] = useState<number | null>(null);
-  const [summary, setSummary] = useState<Awaited<ReturnType<typeof loadSummary>>>(null);
+  const [percentageTable, setPercentageTable] = useState<BestRmPercentageTable | null>(null);
+  const [isLoadingPercentageTable, setIsLoadingPercentageTable] = useState(false);
   const [date, setDate] = useState(getTodayDate());
   const [weight, setWeight] = useState("");
   const [reps, setReps] = useState("");
@@ -130,8 +143,7 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
   }, [ejercicioFromUrl, exercises]);
 
   useEffect(() => {
-    setSelectedLogId(null);
-    setSummary(null);
+    setPercentageTable(null);
   }, [athleteId]);
 
   useEffect(() => {
@@ -218,97 +230,56 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
     [filteredLogs],
   );
 
-  const analytics = useMemo(() => {
+  const evaluationStats = useMemo(() => {
     const sourceLogs =
-      Array.isArray(filteredLogs) && filteredLogs.length > 0
-        ? filteredLogs
-        : Array.isArray(logs)
-          ? logs
-          : [];
-    const sortedLogs = [...sourceLogs].sort(
-      (a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime(),
-    );
-    const totalSessions = sourceLogs.length;
+      filteredLogs.length > 0 ? filteredLogs : logs;
+    const totalEvaluations = sourceLogs.length;
     const totalRm = sourceLogs.reduce((sum, item) => sum + item.estimated_rm, 0);
     const bestEstimatedRM =
-      totalSessions > 0 ? Math.max(...sourceLogs.map((item) => item.estimated_rm)) : 0;
+      totalEvaluations > 0 ? Math.max(...sourceLogs.map((item) => item.estimated_rm)) : 0;
     const averageEstimatedRM =
-      totalSessions > 0 ? Math.round(totalRm / totalSessions) : 0;
-    const volumeLoad = Math.round(
+      totalEvaluations > 0 ? Math.round((totalRm / totalEvaluations) * 10) / 10 : 0;
+    const volumeKgReps = Math.round(
       sourceLogs.reduce((sum, item) => sum + item.weight * item.reps, 0),
     );
-
-    const today = startOfToday();
-    const cutOff30 = new Date(today);
-    cutOff30.setDate(cutOff30.getDate() - 30);
-    const consistencyStreak = sourceLogs.filter(
-      (item) => parseLocalDate(item.date) >= cutOff30,
-    ).length;
-
-    const firstLog = sortedLogs[0] ?? null;
-    const lastLog = sortedLogs[sortedLogs.length - 1] ?? null;
-    const peakRm =
-      totalSessions > 0 ? Math.max(...sourceLogs.map((item) => item.estimated_rm)) : 0;
-
-    let insight = "Analizando datos de entrenamiento.";
-    if (totalSessions === 0) {
-      insight = "Sin registros todavía. Agregá una sesión para ver los análisis.";
-    } else if (totalSessions >= 2 && firstLog && lastLog) {
-      const trendPercent =
-        ((lastLog.estimated_rm - firstLog.estimated_rm) /
-          Math.max(firstLog.estimated_rm, 1)) *
-        100;
-      if (trendPercent >= 4) {
-        insight = "Tendencia positiva: el RM estimado viene en ascenso.";
-      } else if (trendPercent <= -4) {
-        insight = "El RM estimado bajó respecto a las sesiones anteriores.";
-      } else {
-        insight = "Rendimiento estable con entrenamiento consistente.";
-      }
-    }
-
-    let peakInsight = "";
-    if (lastLog && peakRm > 0) {
-      const deltaFromPeak = ((lastLog.estimated_rm - peakRm) / peakRm) * 100;
-      if (deltaFromPeak <= -3) {
-        peakInsight = `El RM estimado bajó un ${Math.abs(deltaFromPeak).toFixed(0)}% desde el pico máximo.`;
-      } else if (deltaFromPeak >= 0) {
-        peakInsight = "El RM estimado está en su máximo histórico.";
-      } else {
-        peakInsight = "El RM estimado se mantiene cerca del pico máximo del atleta.";
-      }
-    }
-
-    let frequencyInsight = "";
-    if (consistencyStreak >= 6) {
-      frequencyInsight = "Alta consistencia en los últimos 30 días.";
-    } else if (consistencyStreak <= 2 && totalSessions > 0) {
-      frequencyInsight = "Frecuencia de entrenamiento baja — recomendá más sesiones.";
-    } else if (totalSessions > 0) {
-      frequencyInsight = "Frecuencia de entrenamiento moderada y estable.";
-    }
+    const bestRmRelative = relativeStrength(bestEstimatedRM, athleteBodyWeightKg);
+    const avgRmRelative = relativeStrength(averageEstimatedRM, athleteBodyWeightKg);
 
     return {
-      totalSessions,
+      totalEvaluations,
       averageEstimatedRM,
       bestEstimatedRM,
-      consistencyStreak,
-      volumeLoad,
-      insight,
-      peakInsight,
-      frequencyInsight,
+      volumeKgReps,
+      bestRmRelative,
+      avgRmRelative,
     };
-  }, [filteredLogs, logs]);
+  }, [filteredLogs, logs, athleteBodyWeightKg]);
+
+  const lastLog = logs[0] ?? null;
+  const missingBodyWeight =
+    athleteId !== null && !hasBodyWeightForRelative(athleteBodyWeightKg);
+
+  useEffect(() => {
+    if (athleteId === null || selectedExerciseId === null || logs.length === 0) {
+      setPercentageTable(null);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingPercentageTable(true);
+    void loadBestRmPercentageTable(athleteId, selectedExerciseId).then((data) => {
+      if (!cancelled) {
+        setPercentageTable(data);
+        setIsLoadingPercentageTable(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [athleteId, selectedExerciseId, logs.length, logsReloadToken]);
 
   const handleSelectExercise = (id: number) => {
     setSelectedExerciseId(id);
-    setSelectedLogId(null);
-    setSummary(null);
-  };
-
-  const handleSelectLog = async (logId: number) => {
-    setSelectedLogId(logId);
-    setSummary(await loadSummary(logId));
+    setPercentageTable(null);
   };
 
   const handleCreateLog = async (event: FormEvent<HTMLFormElement>) => {
@@ -367,12 +338,8 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
     setIsLogEditModalOpen(true);
   };
 
-  const handleLogSaved = async () => {
-    const editedLogId = editingLog?.id ?? null;
+  const handleLogSaved = () => {
     setLogsReloadToken((p) => p + 1);
-    if (editedLogId !== null && selectedLogId === editedLogId) {
-      setSummary(await loadSummary(editedLogId));
-    }
     pushToast("success", "Registro de fuerza actualizado");
   };
 
@@ -389,10 +356,6 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
     setDeletingLogId(logId);
     try {
       await deleteTrainingLog(logId);
-      if (selectedLogId === logId) {
-        setSelectedLogId(null);
-        setSummary(null);
-      }
       setLogsReloadToken((p) => p + 1);
       pushToast("success", "Registro de fuerza eliminado");
     } catch (error) {
@@ -411,6 +374,30 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
 
   return (
     <div className="space-y-6">
+      {missingBodyWeight && (
+        <div
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+          role="status"
+        >
+          Para ver fuerza relativa, completá el{" "}
+          <span className="font-medium">peso corporal</span> en la ficha del atleta
+          {athleteId !== null ? (
+            <>
+              {" "}
+              (
+              <Link
+                href={`/atletas/${athleteId}`}
+                className="font-semibold text-amber-950 underline underline-offset-2 hover:text-amber-800"
+              >
+                ir al perfil
+              </Link>
+              )
+            </>
+          ) : null}
+          . Los valores relativos se muestran como — hasta entonces.
+        </div>
+      )}
+
       <StrengthLogEditModal
         open={isLogEditModalOpen}
         log={editingLog}
@@ -474,7 +461,7 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
           </div>
           <h3 className="text-base font-semibold text-slate-800 mb-2">Seleccioná un atleta</h3>
           <p className="text-sm text-slate-500 max-w-sm mx-auto">
-            Elegí un atleta arriba para comenzar a registrar sesiones de entrenamiento.
+            Elegí un atleta arriba para comenzar a registrar evaluaciones de fuerza.
           </p>
         </section>
       ) : selectedExerciseId === null ? (
@@ -489,14 +476,14 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
             Seleccioná un ejercicio para ver el progreso
           </h3>
           <p className="text-sm text-slate-500 max-w-sm mx-auto">
-            Elegí un ejercicio arriba para ver el gráfico de progreso y registros de entrenamiento.
+            Elegí un ejercicio arriba para ver progresión de RM y el historial de evaluaciones.
           </p>
         </section>
       ) : (
         <>
           <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
             <h2 className="text-base font-semibold text-slate-700 mb-4">
-              Nuevo Registro de Entrenamiento —{" "}
+              Nueva evaluación —{" "}
               <span className="text-indigo-600">{displayAthleteName}</span>
               {" / "}
               <span className="text-indigo-600">{displayExerciseName}</span>
@@ -558,13 +545,16 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
                 Este atleta todavía no tiene registros
               </h3>
               <p className="text-sm text-slate-500 max-w-sm mx-auto">
-                Registrá tu primera sesión para desbloquear información de entrenamiento, progresión de RM y seguimiento de consistencia.
+                Registrá tu primera evaluación para ver el resumen, la progresión de RM y la tabla de %RM.
               </p>
             </section>
           ) : (
             <>
               <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                <h2 className="text-base font-semibold text-slate-700 mb-4">Resumen de Rendimiento</h2>
+                <h2 className="text-base font-semibold text-slate-700 mb-1">Resumen de rendimiento</h2>
+                <p className="text-xs text-slate-400 mb-4">
+                  Fuerza relativa según peso corporal actual en la ficha del atleta.
+                </p>
                 {(() => {
                   const lastLog = logs[0];
                   const previousLog = logs[1];
@@ -573,17 +563,22 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
                         previousLog.estimated_rm) *
                       100
                     : null;
+                  const lastLoadRelative = relativeStrength(lastLog.weight, athleteBodyWeightKg);
+                  const lastRmRelative = relativeStrength(lastLog.estimated_rm, athleteBodyWeightKg);
                   return (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                       <div className="bg-slate-50 rounded-xl p-4">
-                        <p className="text-xs text-slate-400 mb-1">Est. 1RM</p>
+                        <p className="text-xs text-slate-400 mb-1">Est. 1RM (última evaluación)</p>
                         <p className="text-2xl font-bold text-slate-800">
                           {lastLog.estimated_rm}
                           <span className="text-sm font-normal text-slate-400 ml-1">kg</span>
                         </p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Rel. RM: {formatRelativeStrength(lastRmRelative)}
+                        </p>
                       </div>
                       <div className="bg-slate-50 rounded-xl p-4">
-                        <p className="text-xs text-slate-400 mb-1">vs Anterior</p>
+                        <p className="text-xs text-slate-400 mb-1">vs evaluación anterior</p>
                         {changePct !== null ? (
                           <p
                             className={`text-2xl font-bold ${changePct >= 0 ? "text-emerald-600" : "text-red-500"}`}
@@ -593,16 +588,30 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
                             <span className="text-sm font-normal ml-0.5">%</span>
                           </p>
                         ) : (
-                          <p className="text-sm text-slate-400 mt-1">Sin datos anteriores</p>
+                          <p className="text-sm text-slate-400 mt-1">Sin evaluación anterior</p>
                         )}
                       </div>
                       <div className="bg-slate-50 rounded-xl p-4">
-                        <p className="text-xs text-slate-400 mb-1">Última sesión</p>
+                        <p className="text-xs text-slate-400 mb-1">Última carga</p>
                         <p className="text-sm font-semibold text-slate-700">
                           {lastLog.weight} kg × {lastLog.reps} rep
                           {lastLog.reps !== 1 ? "s" : ""}
                         </p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Rel. carga: {formatRelativeStrength(lastLoadRelative)}
+                        </p>
                         <p className="text-xs text-slate-400 mt-0.5">{formatDisplayDate(lastLog.date)}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4">
+                        <p className="text-xs text-slate-400 mb-1">Peso corporal (ficha)</p>
+                        <p className="text-2xl font-bold text-slate-800">
+                          {athleteBodyWeightKg != null && athleteBodyWeightKg > 0
+                            ? athleteBodyWeightKg
+                            : "—"}
+                          {athleteBodyWeightKg != null && athleteBodyWeightKg > 0 && (
+                            <span className="text-sm font-normal text-slate-400 ml-1">kg</span>
+                          )}
+                        </p>
                       </div>
                     </div>
                   );
@@ -610,8 +619,125 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
               </section>
 
               <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-700">Historial de evaluaciones</h2>
+                    <p className="text-sm text-slate-500 max-w-xl">
+                      Agregados del rango seleccionado en el gráfico. Volumen = Σ (kg × reps).
+                    </p>
+                  </div>
+                  <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                    <span className="h-2.5 w-2.5 rounded-full bg-indigo-500" />
+                    {DATE_RANGE_OPTIONS.find((opt) => opt.value === dateRange)?.label}
+                  </span>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 mb-6">
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">Evaluaciones</p>
+                    <p className="mt-3 text-3xl font-semibold text-slate-900">
+                      {evaluationStats.totalEvaluations}
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">RM promedio</p>
+                    <p className="mt-3 text-3xl font-semibold text-indigo-600">
+                      {evaluationStats.averageEstimatedRM} kg
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">Mejor RM</p>
+                    <p className="mt-3 text-3xl font-semibold text-slate-900">
+                      {evaluationStats.bestEstimatedRM} kg
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">Volumen (kg×reps)</p>
+                    <p className="mt-3 text-3xl font-semibold text-slate-900">
+                      {evaluationStats.volumeKgReps.toLocaleString("es-AR")}
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">
+                      Fuerza relativa (mejor RM)
+                    </p>
+                    <p className="mt-3 text-3xl font-semibold text-slate-900">
+                      {formatRelativeStrength(evaluationStats.bestRmRelative)}
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">
+                      Fuerza relativa (RM promedio)
+                    </p>
+                    <p className="mt-3 text-3xl font-semibold text-slate-900">
+                      {formatRelativeStrength(evaluationStats.avgRmRelative)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-slate-600">Listado</h3>
+                  <span className="text-xs text-slate-400">
+                    {filteredLogs.length} de {logs.length} en el rango
+                  </span>
+                </div>
+                {filteredLogs.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-6">Sin evaluaciones en este rango</p>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {filteredLogs.map((log) => {
+                      const loadRel = relativeStrength(log.weight, athleteBodyWeightKg);
+                      const rmRel = relativeStrength(log.estimated_rm, athleteBodyWeightKg);
+                      return (
+                        <li key={log.id} className="flex items-center gap-2">
+                          <div
+                            className="flex-1 flex flex-wrap items-center justify-between gap-2 px-3 py-3 rounded-lg"
+                          >
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                              <span className="text-xs text-slate-400 w-20">
+                                {formatDisplayDate(log.date)}
+                              </span>
+                              <span className="text-sm text-slate-700 font-medium">
+                                {log.weight} kg × {log.reps} rep{log.reps !== 1 ? "s" : ""}
+                              </span>
+                              <span className="text-xs text-slate-500">
+                                Rel. carga {formatRelativeStrength(loadRel)}
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-sm font-semibold text-indigo-600 block">
+                                {log.estimated_rm} kg RM
+                              </span>
+                              <span className="text-xs text-slate-500">
+                                Rel. RM {formatRelativeStrength(rmRel)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 gap-1 pr-2">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditLog(log)}
+                              className="px-2.5 py-1.5 text-xs font-medium text-indigo-700 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteLog(log.id)}
+                              disabled={deletingLogId === log.id}
+                              className="px-2.5 py-1.5 text-xs font-medium text-red-700 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 transition disabled:opacity-50"
+                            >
+                              {deletingLogId === log.id ? "..." : "Eliminar"}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
                 <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-                  <h2 className="text-base font-semibold text-slate-700">Progresión de RM</h2>
+                  <h2 className="text-base font-semibold text-slate-700">Progresión RM</h2>
                 </div>
                 <div className="flex gap-2 mb-6">
                   {DATE_RANGE_OPTIONS.map((opt) => (
@@ -665,177 +791,116 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
               </section>
 
               <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-                  <div>
-                    <h2 className="text-base font-semibold text-slate-700">Información de Entrenamiento</h2>
-                    <p className="text-sm text-slate-500 max-w-xl">
-                      Un resumen rápido del volumen de sesiones, RM estimado y consistencia reciente del atleta.
-                    </p>
+                <h2 className="text-base font-semibold text-slate-700 mb-1">Registro de evaluación</h2>
+                <p className="text-xs text-slate-400 mb-4">
+                  Última evaluación registrada en este ejercicio. La tabla %RM se calcula sobre el{" "}
+                  <span className="font-medium text-slate-500">mejor RM histórico</span> del atleta
+                  (puede diferir del RM de la última evaluación y del gráfico de progresión).
+                </p>
+                {lastLog && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-slate-50 rounded-xl p-4">
+                      <p className="text-xs text-slate-400 mb-1">Fecha</p>
+                      <p className="text-sm font-semibold text-slate-800">
+                        {formatDisplayDate(lastLog.date)}
+                      </p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-4">
+                      <p className="text-xs text-slate-400 mb-1">Carga</p>
+                      <p className="text-xl font-bold text-slate-800">
+                        {lastLog.weight} kg × {lastLog.reps}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Fuerza rel.:{" "}
+                        {formatRelativeStrength(
+                          relativeStrength(lastLog.weight, athleteBodyWeightKg),
+                        )}
+                      </p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-4">
+                      <p className="text-xs text-slate-400 mb-1">RM estimado (esta evaluación)</p>
+                      <p className="text-xl font-bold text-indigo-600">
+                        {lastLog.estimated_rm}{" "}
+                        <span className="text-sm font-normal text-slate-400">kg</span>
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Fuerza rel.:{" "}
+                        {formatRelativeStrength(
+                          relativeStrength(lastLog.estimated_rm, athleteBodyWeightKg),
+                        )}
+                      </p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-4">
+                      <p className="text-xs text-slate-400 mb-1">Ejercicio</p>
+                      <p className="text-sm font-semibold text-slate-800">{displayExerciseName}</p>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                      <span className="h-2.5 w-2.5 rounded-full bg-indigo-500" />
-                      {DATE_RANGE_OPTIONS.find((opt) => opt.value === dateRange)?.label}
+                )}
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <h3 className="text-sm font-semibold text-slate-600">Tabla de %RM</h3>
+                  {percentageTable && (
+                    <span
+                      className="text-xs text-slate-500 bg-slate-100 rounded-full px-2.5 py-0.5"
+                      title="Las cargas de cada fila usan el mejor RM histórico en este ejercicio."
+                    >
+                      Calculado sobre el mejor RM histórico: {percentageTable.reference_rm} kg
                     </span>
-                    <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                      <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                      {analytics.consistencyStreak} sesiones en 30 días
-                    </span>
-                  </div>
+                  )}
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                    <p className="text-xs text-slate-400 uppercase tracking-wide">Total sesiones</p>
-                    <p className="mt-3 text-3xl font-semibold text-slate-900">{analytics.totalSessions}</p>
-                  </div>
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                    <p className="text-xs text-slate-400 uppercase tracking-wide">RM estimado promedio</p>
-                    <p className="mt-3 text-3xl font-semibold text-indigo-600">
-                      {analytics.averageEstimatedRM} kg
-                    </p>
-                  </div>
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                    <p className="text-xs text-slate-400 uppercase tracking-wide">Mejor RM estimado</p>
-                    <p className="mt-3 text-3xl font-semibold text-slate-900">
-                      {analytics.bestEstimatedRM} kg
-                    </p>
-                  </div>
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                    <p className="text-xs text-slate-400 uppercase tracking-wide">Carga total</p>
-                    <p className="mt-3 text-3xl font-semibold text-slate-900">
-                      {analytics.volumeLoad.toLocaleString("es-AR")}{" "}
-                      <span className="text-lg font-medium text-slate-500">kg</span>
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                  <p className="text-xs text-slate-400 uppercase tracking-wide">Análisis de tendencia</p>
-                  <p className="mt-3 text-sm text-slate-700">{analytics.insight}</p>
-                  <p className="mt-2 text-sm text-slate-500">
-                    {analytics.peakInsight} {analytics.frequencyInsight}
-                  </p>
-                </div>
-              </section>
-
-              <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-base font-semibold text-slate-700">Registros de Entrenamiento</h2>
-                  <span className="text-xs text-slate-400">
-                    {filteredLogs.length} de {logs.length} registros
-                  </span>
-                </div>
-                {filteredLogs.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-6">Sin datos para este rango</p>
-                ) : (
-                  <ul className="divide-y divide-slate-100">
-                    {filteredLogs.map((log) => (
-                      <li key={log.id} className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleSelectLog(log.id)}
-                          className={`flex-1 flex items-center justify-between px-3 py-3 rounded-lg text-left transition-all hover:bg-slate-50 active:scale-[0.99] ${
-                            selectedLogId === log.id ? "bg-indigo-50" : ""
-                          }`}
-                        >
-                          <div className="flex items-center gap-4">
-                            <span className="text-xs text-slate-400 w-20">
-                              {formatDisplayDate(log.date)}
-                            </span>
-                            <span className="text-sm text-slate-700 font-medium">
-                              {log.weight} kg × {log.reps} rep{log.reps !== 1 ? "s" : ""}
-                            </span>
-                          </div>
-                          <span className="text-sm font-semibold text-indigo-600">
-                            {log.estimated_rm} kg RM
-                          </span>
-                        </button>
-                        <div className="flex shrink-0 gap-1 pr-2">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditLog(log)}
-                            className="px-2.5 py-1.5 text-xs font-medium text-indigo-700 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition"
+                {isLoadingPercentageTable && (
+                  <p className="text-sm text-slate-400">Cargando tabla...</p>
+                )}
+                {!isLoadingPercentageTable && percentageTable && (
+                  <div className="overflow-x-auto rounded-xl border border-slate-100">
+                    <table className="w-full text-sm min-w-[32rem]">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                            %RM
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                            Reps
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                            Carga (kg)
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                            Fuerza rel.
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                            RIR+1
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                            RIR+2
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {percentageTable.percentages.map((row) => (
+                          <tr
+                            key={`${row.percentage}-${row.reps}`}
+                            className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"
                           >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteLog(log.id)}
-                            disabled={deletingLogId === log.id}
-                            className="px-2.5 py-1.5 text-xs font-medium text-red-700 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 transition disabled:opacity-50"
-                          >
-                            {deletingLogId === log.id ? "..." : "Eliminar"}
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                            <td className="px-3 py-2.5 text-slate-600">{row.percentage}%</td>
+                            <td className="px-3 py-2.5 text-slate-600">{row.reps}</td>
+                            <td className="px-3 py-2.5 font-medium text-slate-700">{row.weight}</td>
+                            <td className="px-3 py-2.5 text-slate-600">
+                              {formatRelativeStrength(
+                                relativeStrength(row.weight, athleteBodyWeightKg),
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-slate-600">{row.rir_plus_1}</td>
+                            <td className="px-3 py-2.5 text-slate-600">{row.rir_plus_2}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </section>
             </>
           )}
         </>
-      )}
-
-      {selectedLogId !== null && !summary && (
-        <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <p className="text-sm text-slate-400">No se pudo cargar el resumen del registro.</p>
-        </section>
-      )}
-
-      {summary && (
-        <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <h2 className="text-base font-semibold text-slate-700 mb-4">
-            Resumen de Sesión — {summary.exercise}
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            <div className="bg-slate-50 rounded-xl p-4">
-              <p className="text-xs text-slate-400 mb-1">Peso</p>
-              <p className="text-xl font-bold text-slate-800">
-                {summary.weight}{" "}
-                <span className="text-sm font-normal text-slate-400">kg</span>
-              </p>
-            </div>
-            <div className="bg-slate-50 rounded-xl p-4">
-              <p className="text-xs text-slate-400 mb-1">Repeticiones</p>
-              <p className="text-xl font-bold text-slate-800">{summary.reps}</p>
-            </div>
-            <div className="bg-slate-50 rounded-xl p-4">
-              <p className="text-xs text-slate-400 mb-1">RM Est.</p>
-              <p className="text-xl font-bold text-indigo-600">
-                {summary.estimated_rm}{" "}
-                <span className="text-sm font-normal text-slate-400">kg</span>
-              </p>
-            </div>
-          </div>
-          <h3 className="text-sm font-semibold text-slate-600 mb-3">Tabla de %RM</h3>
-          <div className="overflow-x-auto rounded-xl border border-slate-100">
-            <table className="w-full text-sm min-w-[28rem]">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">%RM</th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">Reps</th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">Carga (kg)</th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">RIR+1</th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">RIR+2</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.percentages.map((row) => (
-                  <tr
-                    key={`${row.percentage}-${row.reps}`}
-                    className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"
-                  >
-                    <td className="px-3 py-2.5 text-slate-600">{row.percentage}%</td>
-                    <td className="px-3 py-2.5 text-slate-600">{row.reps}</td>
-                    <td className="px-3 py-2.5 font-medium text-slate-700">{row.weight}</td>
-                    <td className="px-3 py-2.5 text-slate-600">{row.rir_plus_1}</td>
-                    <td className="px-3 py-2.5 text-slate-600">{row.rir_plus_2}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
       )}
     </div>
   );

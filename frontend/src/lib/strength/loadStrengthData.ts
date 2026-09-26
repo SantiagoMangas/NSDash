@@ -1,5 +1,6 @@
 import {
   getAllLogs,
+  getExercisePercentageTable,
   getProgress,
   getSummary,
 } from "@/lib/api/strength";
@@ -28,6 +29,13 @@ export type LogSummary = {
   reps: number;
   date: string;
   estimated_rm: number;
+  percentages: PercentageRow[];
+};
+
+export type BestRmPercentageTable = {
+  exercise: string;
+  reference_rm: number;
+  reference_rm_source: string;
   percentages: PercentageRow[];
 };
 
@@ -102,6 +110,46 @@ export async function loadProgress(
   }
 }
 
+function parsePercentageRows(raw: unknown): PercentageRow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item: unknown): item is PercentageRow =>
+      item !== null &&
+      typeof item === "object" &&
+      typeof (item as PercentageRow).percentage === "number" &&
+      typeof (item as PercentageRow).reps === "number" &&
+      typeof (item as PercentageRow).weight === "number" &&
+      typeof (item as PercentageRow).rir_plus_1 === "number" &&
+      typeof (item as PercentageRow).rir_plus_2 === "number",
+  );
+}
+
+export async function loadBestRmPercentageTable(
+  athleteId: number,
+  exerciseId: number,
+): Promise<BestRmPercentageTable | null> {
+  try {
+    const data = await getExercisePercentageTable(athleteId, exerciseId);
+    if (
+      !data ||
+      typeof data !== "object" ||
+      typeof data.exercise !== "string" ||
+      typeof data.reference_rm !== "number"
+    ) {
+      return null;
+    }
+    return {
+      exercise: data.exercise,
+      reference_rm: data.reference_rm,
+      reference_rm_source:
+        typeof data.reference_rm_source === "string" ? data.reference_rm_source : "best_historical",
+      percentages: parsePercentageRows(data.percentages),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function loadSummary(logId: number): Promise<LogSummary | null> {
   try {
     const data = await getSummary(logId);
@@ -122,16 +170,7 @@ export async function loadSummary(logId: number): Promise<LogSummary | null> {
       weight: data.weight,
       reps: data.reps,
       estimated_rm: data.estimated_rm,
-      percentages: data.percentages.filter(
-        (item: unknown): item is PercentageRow =>
-          item !== null &&
-          typeof item === "object" &&
-          typeof (item as PercentageRow).percentage === "number" &&
-          typeof (item as PercentageRow).reps === "number" &&
-          typeof (item as PercentageRow).weight === "number" &&
-          typeof (item as PercentageRow).rir_plus_1 === "number" &&
-          typeof (item as PercentageRow).rir_plus_2 === "number",
-      ),
+      percentages: parsePercentageRows(data.percentages),
     };
   } catch {
     return null;

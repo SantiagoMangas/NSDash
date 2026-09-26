@@ -309,6 +309,7 @@ export default function LegacyDashboardPage() {
           <StrengthModule
             athleteId={selectedAthleteId}
             athleteName={selectedAthlete?.name ?? null}
+            athleteBodyWeightKg={selectedAthlete?.body_weight_kg ?? null}
             authToken={token}
           />
         )}

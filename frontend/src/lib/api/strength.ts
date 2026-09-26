@@ -93,6 +93,13 @@ export async function getProgress(athleteId: number, exerciseId: number): Promis
   return get(`/athletes/${athleteId}/progress/${exerciseId}`);
 }
 
+export async function getExercisePercentageTable(
+  athleteId: number,
+  exerciseId: number,
+): Promise<any> {
+  return get(`/athletes/${athleteId}/exercises/${exerciseId}/percentage-table`);
+}
+
 export async function getSummary(logId: number): Promise<any> {
   return get(`/logs/${logId}/summary`);
 }

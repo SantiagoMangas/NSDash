@@ -18,6 +18,7 @@ type Props = {
   children: (ctx: {
     athleteId: number | null;
     athleteName: string | null;
+    athleteBodyWeightKg: number | null;
     authToken: string | null;
   }) => React.ReactNode;
 };
@@ -146,6 +147,7 @@ export function ModuleAthleteShell({
       {children({
         athleteId,
         athleteName: athlete?.name ?? null,
+        athleteBodyWeightKg: athlete?.body_weight_kg ?? null,
         authToken,
       })}
     </main>

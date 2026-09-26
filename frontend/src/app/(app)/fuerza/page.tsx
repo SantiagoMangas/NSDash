@@ -11,10 +11,11 @@ function FuerzaContent() {
       moduleEmoji="💪"
       moduleDescription="Registros, progresión de RM y tabla de porcentajes. Elegí un atleta cuando quieras cargar datos."
     >
-      {({ athleteId, athleteName, authToken }) => (
+      {({ athleteId, athleteName, athleteBodyWeightKg, authToken }) => (
         <StrengthModule
           athleteId={athleteId}
           athleteName={athleteName}
+          athleteBodyWeightKg={athleteBodyWeightKg}
           authToken={authToken}
         />
       )}
