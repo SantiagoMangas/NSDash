@@ -62,13 +62,13 @@ EXERCISE_PERCENTAGE_CURVE_BY_NAME: dict[str, PercentageCurveKey] = {
     "Oly - Clean": "sentadilla",
     "DLO - Hang Sq Clean": "sentadilla",
     "DLO - Hang Power Clean": "sentadilla",
-    "Hips Thrust": "sentadilla",
     # Peso muerto
     "Peso muerto": "peso_muerto",
     "Peso muerto rumano": "peso_muerto",
     "Peso muerto - Sumo": "peso_muerto",
     "Peso muerto - Convencional": "peso_muerto",
     "Oly - Clean and Jerk": "peso_muerto",
+    "Hips Thrust": "peso_muerto",
     # Banco plano (press horizontal / derivados Oly listados por Nico)
     "Press Plano - Br": "banco_plano",
     "Push Press - Br": "banco_plano",
@@ -142,7 +142,9 @@ def migrate_legacy_removed_percentage_curves(db: Session) -> None:
     for exercise in db.query(Exercise).filter(Exercise.percentage_curve == "press_militar").all():
         exercise.percentage_curve = "banco_plano"
     for exercise in db.query(Exercise).filter(Exercise.percentage_curve == "hips_thrust").all():
-        exercise.percentage_curve = "sentadilla"
+        exercise.percentage_curve = "peso_muerto"
+    for exercise in db.query(Exercise).filter(Exercise.name == "Hips Thrust").all():
+        exercise.percentage_curve = "peso_muerto"
     db.commit()
 
 

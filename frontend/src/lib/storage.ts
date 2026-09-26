@@ -13,6 +13,8 @@ export const STORAGE_KEYS = {
   sprintDistance: `${PREFIX}sprint_distance`,
   /** Atleta elegido en Fuerza/Resistencia (sesión del navegador). */
   sessionAtletaId: `${PREFIX}session_atleta_id`,
+  /** Último filtro de equipo en /atletas. */
+  atletasTeamId: `${PREFIX}atletas_team_id`,
 } as const;
 
 const LEGACY_DASHBOARD_KEYS = [`${PREFIX}athlete_id`, `${PREFIX}team_id`] as const;
@@ -142,6 +144,18 @@ export function readSessionAtletaId(): number | null {
 export function persistSessionAtletaId(id: number | null): void {
   if (id === null) safeSessionRemove(STORAGE_KEYS.sessionAtletaId);
   else safeSessionSet(STORAGE_KEYS.sessionAtletaId, String(id));
+}
+
+export function readStoredAtletasTeamId(): number | null {
+  const raw = safeGet(STORAGE_KEYS.atletasTeamId);
+  if (!raw) return null;
+  const id = Number.parseInt(raw, 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+export function persistAtletasTeamId(teamId: number | null): void {
+  if (teamId === null) safeRemove(STORAGE_KEYS.atletasTeamId);
+  else safeSet(STORAGE_KEYS.atletasTeamId, String(teamId));
 }
 
 // ─── Auth Token ────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import { useToast } from "@/contexts/ToastContext";
 import { getAthletes } from "@/lib/api/athletes";
 import { getTeams, type Team } from "@/lib/api/teams";
 import { parseAthlete } from "@/lib/athletes/parseAthlete";
+import { persistAtletasTeamId, readStoredAtletasTeamId } from "@/lib/storage";
 import type { Athlete } from "@/lib/types";
 
 async function loadAthletes(teamId: number | null): Promise<Athlete[]> {
@@ -41,6 +42,15 @@ export function AtletasListClient() {
     setSelectedTeamId(teamIdFromUrl);
   }, [teamIdFromUrl]);
 
+  useEffect(() => {
+    if (teamIdFromUrl !== null) return;
+    const stored = readStoredAtletasTeamId();
+    if (stored === null) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("team_id", String(stored));
+    router.replace(`/atletas?${params.toString()}`);
+  }, [teamIdFromUrl, searchParams, router]);
+
   const refreshTeams = useCallback(async () => {
     try {
       setTeams(await getTeams());
@@ -66,6 +76,7 @@ export function AtletasListClient() {
 
   const setTeamFilter = (teamId: number | null) => {
     setSelectedTeamId(teamId);
+    persistAtletasTeamId(teamId);
     const params = new URLSearchParams(searchParams.toString());
     if (teamId === null) {
       params.delete("team_id");

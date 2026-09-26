@@ -1,4 +1,4 @@
-"""Evidencia: Hips Thrust usa la misma tabla %RM que Sentadilla."""
+"""Evidencia: Hips Thrust usa la misma tabla %RM que Peso muerto."""
 
 from __future__ import annotations
 
@@ -19,23 +19,26 @@ login = client.post("/auth/login", json={"email": "admin@ns.com", "password": "1
 assert login.status_code == 200, login.text
 headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
+EXPECTED_PCTS = [100.0, 95.0, 93.0, 90.0, 87.0, 85.0, 80.0, 75.0]
+
 
 def main() -> None:
     with SessionLocal() as db:
         hips = db.query(Exercise).filter(Exercise.name == "Hips Thrust").first()
-        squat = db.query(Exercise).filter(Exercise.name == "Sentadilla Back").first()
-        if hips is None or squat is None:
+        dead = db.query(Exercise).filter(Exercise.name == "Peso muerto").first()
+        if hips is None or dead is None:
             print("ERROR: missing seed exercises", file=sys.stderr)
             sys.exit(1)
 
         curve = resolve_percentage_curve(hips)
-        assert curve == "sentadilla"
-        assert hips.percentage_curve == "sentadilla"
+        assert curve == "peso_muerto"
+        assert hips.percentage_curve == "peso_muerto"
 
         rm = 100.0
         hips_table = build_percentage_table(rm, exercise=hips)
-        squat_table = build_percentage_table(rm, exercise=squat)
-        assert hips_table == squat_table
+        dead_table = build_percentage_table(rm, exercise=dead)
+        assert hips_table == dead_table
+        assert [r["percentage"] for r in hips_table] == EXPECTED_PCTS
 
         log = (
             db.query(TrainingLog)
@@ -48,13 +51,13 @@ def main() -> None:
     print(f"percentage_curve: {hips.percentage_curve}")
     print(f"resolve_percentage_curve: {curve}")
     print()
-    print("=== Tabla %RM (RM=100) Hips Thrust vs Sentadilla Back ===")
-    print("iguales:", hips_table == squat_table)
+    print("=== Tabla %RM (RM=100) Hips Thrust vs Peso muerto ===")
+    print("iguales:", hips_table == dead_table)
     for i, row in enumerate(hips_table):
-        s = squat_table[i]
+        d = dead_table[i]
         print(
             f"  {row['percentage']}% x {row['reps']} reps "
-            f"-> {row['weight']} kg | sentadilla %={s['percentage']} reps={s['reps']}"
+            f"-> {row['weight']} kg | peso_muerto %={d['percentage']} reps={d['reps']}"
         )
 
     if log is None:
@@ -77,24 +80,25 @@ def main() -> None:
         log_id = create.json()["id"]
     else:
         log_id = log.id
-        print(f"\nLog existente id={log_id}")
+        print(f"\nLog existente id={log_id} RM={log.estimated_rm}")
 
     summary = client.get(f"/logs/{log_id}/summary", headers=headers)
     assert summary.status_code == 200, summary.text
     body = summary.json()
     assert body["exercise"] == "Hips Thrust"
-    assert body["percentage_curve"] == "sentadilla"
+    assert body["percentage_curve"] == "peso_muerto"
 
-    squat_ref = build_percentage_table(float(body["estimated_rm"]), curve_key="sentadilla")
+    dead_ref = build_percentage_table(float(body["estimated_rm"]), curve_key="peso_muerto")
     api_rows = body["percentages"]
-    assert len(api_rows) == len(squat_ref)
-    for api_row, ref in zip(api_rows, squat_ref, strict=True):
+    assert len(api_rows) == len(dead_ref)
+    for api_row, ref in zip(api_rows, dead_ref, strict=True):
         assert api_row["percentage"] == ref["percentage"]
         assert api_row["reps"] == ref["reps"]
         assert api_row["weight"] == ref["weight"]
 
     print()
     print("=== GET /logs/{id}/summary (Hips Thrust) ===")
+    print("percentages:", [r["percentage"] for r in api_rows])
     print(json.dumps(body, indent=2, default=str))
 
 

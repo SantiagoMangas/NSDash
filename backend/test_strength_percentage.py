@@ -50,7 +50,7 @@ class TestPercentageCurves:
     def test_resolve_from_exercise_name(self):
         assert resolve_percentage_curve(_ex("Peso muerto")) == "peso_muerto"
         assert resolve_percentage_curve(_ex("Press Militar - Br")) == "banco_plano"
-        assert resolve_percentage_curve(_ex("Hips Thrust")) == "sentadilla"
+        assert resolve_percentage_curve(_ex("Hips Thrust")) == "peso_muerto"
 
     def test_press_militar_matches_banco_plano_table(self):
         rm = 80.0
@@ -70,19 +70,19 @@ class TestPercentageCurves:
             75.0,
         ]
 
-    def test_hips_thrust_matches_sentadilla_table(self):
+    def test_hips_thrust_matches_peso_muerto_table(self):
         rm = 80.0
-        hips = _ex("Hips Thrust", "sentadilla")
-        squat = _ex("Sentadilla Back", "sentadilla")
+        hips = _ex("Hips Thrust", "peso_muerto")
+        dead = _ex("Peso muerto", "peso_muerto")
         hips_rows = build_percentage_table(rm, exercise=hips)
-        squat_rows = build_percentage_table(rm, exercise=squat)
-        assert hips_rows == squat_rows
+        dead_rows = build_percentage_table(rm, exercise=dead)
+        assert hips_rows == dead_rows
         assert [r["percentage"] for r in hips_rows] == [
             100.0,
             95.0,
-            92.5,
+            93.0,
             90.0,
-            87.5,
+            87.0,
             85.0,
             80.0,
             75.0,
