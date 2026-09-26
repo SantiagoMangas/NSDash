@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   CartesianGrid,
   Line,
@@ -16,6 +17,7 @@ import {
   StrengthLogEditModal,
   type StrengthLogEditData,
 } from "@/components/strength/StrengthLogEditModal";
+import { DateInputWithDisplay } from "@/components/ui/DateInputWithDisplay";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import { useToast } from "@/contexts/ToastContext";
 import { DATE_RANGE_OPTIONS } from "@/lib/constants";
@@ -46,6 +48,7 @@ import {
   STORAGE_KEYS,
 } from "@/lib/storage";
 import type { DateRange } from "@/lib/types";
+import { filterExercisesByName } from "@/lib/strength/exerciseSearch";
 import { parseApiError } from "@/lib/utils";
 
 type Props = {
@@ -54,8 +57,16 @@ type Props = {
   authToken: string | null;
 };
 
+function parseEjercicioParam(raw: string | null): number | null {
+  if (!raw) return null;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
   const { pushToast } = useToast();
+  const searchParams = useSearchParams();
+  const ejercicioFromUrl = parseEjercicioParam(searchParams.get("ejercicio"));
   const prefsReadyRef = useRef(false);
 
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -79,9 +90,14 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
   const [dateRange, setDateRange] = useState<DateRange>(() =>
     readStoredDateRange(STORAGE_KEYS.dateRange),
   );
+  const [exerciseSearchQuery, setExerciseSearchQuery] = useState("");
 
   const weightInputRef = useRef<HTMLInputElement | null>(null);
   const selectedExercise = exercises.find((e) => e.id === selectedExerciseId) ?? null;
+  const filteredExercises = useMemo(
+    () => filterExercisesByName(exercises, exerciseSearchQuery),
+    [exercises, exerciseSearchQuery],
+  );
 
   useEffect(() => {
     prefsReadyRef.current = true;
@@ -91,7 +107,7 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
     if (!authToken) return;
     setIsLoadingExercises(true);
     getExercises()
-      .then(setExercises)
+      .then(({ exercises }) => setExercises(exercises))
       .catch(() => setExercises([]))
       .finally(() => setIsLoadingExercises(false));
   }, [authToken]);
@@ -105,6 +121,13 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
       setSelectedExerciseId(null);
     }
   }, [exercises, selectedExerciseId]);
+
+  useEffect(() => {
+    if (ejercicioFromUrl === null || exercises.length === 0) return;
+    if (exercises.some((exercise) => exercise.id === ejercicioFromUrl)) {
+      setSelectedExerciseId(ejercicioFromUrl);
+    }
+  }, [ejercicioFromUrl, exercises]);
 
   useEffect(() => {
     setSelectedLogId(null);
@@ -399,28 +422,42 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
       />
 
       <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-        <h2 className="text-base font-semibold text-slate-700 mb-4">Ejercicios</h2>
+        <h2 className="text-base font-semibold text-slate-700 mb-3">Ejercicios</h2>
         {isLoadingExercises ? (
           <p className="text-sm text-slate-400 animate-pulse">Cargando ejercicios...</p>
         ) : exercises.length === 0 ? (
           <p className="text-sm text-slate-400">No hay ejercicios disponibles.</p>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {exercises.map((exercise) => (
-              <button
-                key={exercise.id}
-                type="button"
-                onClick={() => handleSelectExercise(exercise.id)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 ${
-                  selectedExerciseId === exercise.id
-                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:opacity-90"
-                }`}
-              >
-                {exercise.name}
-              </button>
-            ))}
-          </div>
+          <>
+            <input
+              type="search"
+              value={exerciseSearchQuery}
+              onChange={(e) => setExerciseSearchQuery(e.target.value)}
+              placeholder="Buscar ejercicio…"
+              aria-label="Buscar ejercicio"
+              className="mb-3 w-full max-w-md border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            {filteredExercises.length === 0 ? (
+              <p className="text-sm text-slate-400">Ningún ejercicio coincide con la búsqueda.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {filteredExercises.map((exercise) => (
+                  <button
+                    key={exercise.id}
+                    type="button"
+                    onClick={() => handleSelectExercise(exercise.id)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 ${
+                      selectedExerciseId === exercise.id
+                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:opacity-90"
+                    }`}
+                  >
+                    {exercise.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
         {athleteId === null && (
           <p className="text-xs text-slate-400 mt-3">← Seleccioná un atleta primero.</p>
@@ -465,17 +502,14 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
               <span className="text-indigo-600">{displayExerciseName}</span>
             </h2>
             <form onSubmit={handleCreateLog} className="flex flex-wrap gap-3 items-end">
-              <div>
-                <label htmlFor="log-date" className="block text-xs text-slate-500 mb-1">Fecha</label>
-                <input
-                  id="log-date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  required
-                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-                />
-              </div>
+              <DateInputWithDisplay
+                id="log-date"
+                label="Fecha"
+                value={date}
+                onChange={setDate}
+                required
+                className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+              />
               <div>
                 <label htmlFor="log-weight" className="block text-xs text-slate-500 mb-1">Peso (kg)</label>
                 <input
@@ -773,23 +807,29 @@ export function StrengthModule({ athleteId, athleteName, authToken }: Props) {
               </p>
             </div>
           </div>
-          <h3 className="text-sm font-semibold text-slate-600 mb-3">Tabla de Porcentajes</h3>
-          <div className="overflow-hidden rounded-xl border border-slate-100">
-            <table className="w-full text-sm">
+          <h3 className="text-sm font-semibold text-slate-600 mb-3">Tabla de %RM</h3>
+          <div className="overflow-x-auto rounded-xl border border-slate-100">
+            <table className="w-full text-sm min-w-[28rem]">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-400">Reps</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-400">Peso (kg)</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">%RM</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">Reps</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">Carga (kg)</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">RIR+1</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">RIR+2</th>
                 </tr>
               </thead>
               <tbody>
                 {summary.percentages.map((row) => (
                   <tr
-                    key={row.reps}
+                    key={`${row.percentage}-${row.reps}`}
                     className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"
                   >
-                    <td className="px-4 py-2.5 text-slate-600">{row.reps}</td>
-                    <td className="px-4 py-2.5 font-medium text-slate-700">{row.weight}</td>
+                    <td className="px-3 py-2.5 text-slate-600">{row.percentage}%</td>
+                    <td className="px-3 py-2.5 text-slate-600">{row.reps}</td>
+                    <td className="px-3 py-2.5 font-medium text-slate-700">{row.weight}</td>
+                    <td className="px-3 py-2.5 text-slate-600">{row.rir_plus_1}</td>
+                    <td className="px-3 py-2.5 text-slate-600">{row.rir_plus_2}</td>
                   </tr>
                 ))}
               </tbody>

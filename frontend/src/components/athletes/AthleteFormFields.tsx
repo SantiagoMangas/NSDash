@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { getPositions, getSports, type Position, type Sport } from "@/lib/api/catalog";
 import type { Team } from "@/lib/api/teams";
+import { DateInputWithDisplay } from "@/components/ui/DateInputWithDisplay";
+import { parseLocalDate } from "@/lib/date";
 import type { AthleteFormState } from "./athleteFormUtils";
 
 type Props = {
@@ -55,7 +57,7 @@ export function AthleteFormFields({
   const ageLabel =
     form.birthDate.trim() !== ""
       ? (() => {
-          const born = new Date(form.birthDate);
+          const born = parseLocalDate(form.birthDate);
           if (Number.isNaN(born.getTime())) return null;
           const today = new Date();
           let age = today.getFullYear() - born.getFullYear();
@@ -137,12 +139,11 @@ export function AthleteFormFields({
         </select>
       </div>
       <div>
-        <label htmlFor={`${idPrefix}-birth`} className={labelClass}>Fecha de nacimiento</label>
-        <input
+        <DateInputWithDisplay
           id={`${idPrefix}-birth`}
-          type="date"
+          label="Fecha de nacimiento"
           value={form.birthDate}
-          onChange={(e) => setField("birthDate", e.target.value)}
+          onChange={(value) => setField("birthDate", value)}
           className={inputClass}
         />
         {ageLabel != null && (

@@ -11,6 +11,8 @@ export const STORAGE_KEYS = {
   dateRange: `${PREFIX}date_range`,
   sprintDateRange: `${PREFIX}sprint_date_range`,
   sprintDistance: `${PREFIX}sprint_distance`,
+  /** Atleta elegido en Fuerza/Resistencia (sesión del navegador). */
+  sessionAtletaId: `${PREFIX}session_atleta_id`,
 } as const;
 
 const LEGACY_DASHBOARD_KEYS = [`${PREFIX}athlete_id`, `${PREFIX}team_id`] as const;
@@ -102,6 +104,46 @@ export function persistSprintDistance(distance: number | null): void {
   if (distance === null) safeRemove(STORAGE_KEYS.sprintDistance);
   else safeSet(STORAGE_KEYS.sprintDistance, String(distance));
 }
+
+function safeSessionGet(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSessionSet(key: string, value: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    /* ignore */
+  }
+}
+
+function safeSessionRemove(key: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readSessionAtletaId(): number | null {
+  const raw = safeSessionGet(STORAGE_KEYS.sessionAtletaId);
+  if (!raw) return null;
+  const id = Number.parseInt(raw, 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+export function persistSessionAtletaId(id: number | null): void {
+  if (id === null) safeSessionRemove(STORAGE_KEYS.sessionAtletaId);
+  else safeSessionSet(STORAGE_KEYS.sessionAtletaId, String(id));
+}
+
 // ─── Auth Token ────────────────────────────────────────────────────────────
 
 const TOKEN_KEY = `${PREFIX}token`;

@@ -2,7 +2,7 @@ import math
 from datetime import date as Date
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class LoginRequest(BaseModel):
@@ -262,6 +262,62 @@ class PositionResponse(BaseModel):
 class ExerciseResponse(BaseModel):
     id: int
     name: str
+    formula_type: str
+    rm_coefficient: float
+    percentage_curve: str
+
+    model_config = {"from_attributes": True}
+
+
+class ExerciseCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    formula_type: str
+    rm_coefficient: Optional[float] = None
+    percentage_curve: str
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El nombre no puede estar vacío.")
+        return stripped
+
+    @field_validator("formula_type")
+    @classmethod
+    def normalize_formula_type(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in ("epley", "brzycki"):
+            raise ValueError("formula_type debe ser epley o brzycki.")
+        return normalized
+
+    @field_validator("percentage_curve")
+    @classmethod
+    def normalize_percentage_curve(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        allowed = {
+            "sentadilla",
+            "peso_muerto",
+            "banco_plano",
+        }
+        if normalized not in allowed:
+            raise ValueError("percentage_curve no válida.")
+        return normalized
+
+    @field_validator("rm_coefficient")
+    @classmethod
+    def validate_rm_coefficient(cls, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return None
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("rm_coefficient debe ser un número positivo.")
+        return float(value)
+
+    @model_validator(mode="after")
+    def require_coefficient_for_epley(self) -> "ExerciseCreate":
+        if self.formula_type == "epley" and self.rm_coefficient is None:
+            raise ValueError("rm_coefficient es obligatorio para Epley.")
+        return self
 
 
 class TrainingLogCreate(BaseModel):

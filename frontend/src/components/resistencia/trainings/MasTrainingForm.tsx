@@ -5,6 +5,7 @@ import {
   calculateMasTraining,
   type MasTrainingCalculateResponse,
 } from "@/lib/api/sessions";
+import { DateInputWithDisplay } from "@/components/ui/DateInputWithDisplay";
 import { getTodayDate } from "@/lib/date";
 import type { IntervalTable } from "@/lib/types";
 import { parseApiError } from "@/lib/utils";
@@ -162,19 +163,14 @@ export function MasTrainingForm({ masReferenceTable }: Props) {
           </select>
         </div>
 
-        <div>
-          <label htmlFor="mas-fecha" className="block text-xs text-slate-500 mb-1">
-            Fecha
-          </label>
-          <input
-            id="mas-fecha"
-            type="date"
-            value={date}
-            onChange={(event) => setDate(event.target.value)}
-            required
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition w-full"
-          />
-        </div>
+        <DateInputWithDisplay
+          id="mas-fecha"
+          label="Fecha"
+          value={date}
+          onChange={setDate}
+          required
+          className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition w-full"
+        />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

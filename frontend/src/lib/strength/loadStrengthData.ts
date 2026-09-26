@@ -14,7 +14,13 @@ export type RawLog = {
   estimated_rm: number;
 };
 
-export type PercentageRow = { reps: number; weight: number };
+export type PercentageRow = {
+  percentage: number;
+  reps: number;
+  weight: number;
+  rir_plus_1: number;
+  rir_plus_2: number;
+};
 
 export type LogSummary = {
   exercise: string;
@@ -120,8 +126,11 @@ export async function loadSummary(logId: number): Promise<LogSummary | null> {
         (item: unknown): item is PercentageRow =>
           item !== null &&
           typeof item === "object" &&
+          typeof (item as PercentageRow).percentage === "number" &&
           typeof (item as PercentageRow).reps === "number" &&
-          typeof (item as PercentageRow).weight === "number",
+          typeof (item as PercentageRow).weight === "number" &&
+          typeof (item as PercentageRow).rir_plus_1 === "number" &&
+          typeof (item as PercentageRow).rir_plus_2 === "number",
       ),
     };
   } catch {

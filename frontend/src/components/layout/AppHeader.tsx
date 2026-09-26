@@ -22,6 +22,7 @@ export function AppHeader({ onLogout }: Props) {
   const onResistencia = pathname === "/resistencia";
   const onAtletas = pathname === "/atletas" || pathname.startsWith("/atletas/");
   const onEquipos = pathname === "/equipos" || pathname.startsWith("/equipos/");
+  const onEjercicios = pathname === "/ejercicios" || pathname.startsWith("/ejercicios/");
 
   return (
     <header className="border-b border-slate-200 bg-white/90 backdrop-blur sticky top-0 z-40">
@@ -50,6 +51,9 @@ export function AppHeader({ onLogout }: Props) {
           </Link>
           <Link href="/equipos" className={navLinkClass(onEquipos)}>
             Equipos
+          </Link>
+          <Link href="/ejercicios" className={navLinkClass(onEjercicios)}>
+            Ejercicios
           </Link>
           <button
             type="button"

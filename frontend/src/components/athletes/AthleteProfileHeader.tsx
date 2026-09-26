@@ -6,6 +6,7 @@ import { deleteAthlete } from "@/lib/api/athletes";
 import type { Athlete } from "@/lib/types";
 import type { Team } from "@/lib/api/teams";
 import { athleteInitials, splitAthleteName } from "@/lib/athleteName";
+import { formatDisplayDate } from "@/lib/date";
 import { parseApiError } from "@/lib/utils";
 import { AthleteEditModal } from "./AthleteEditModal";
 
@@ -110,6 +111,14 @@ export function AthleteProfileHeader({
       </div>
 
       <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4 text-sm">
+        <div>
+          <dt className="text-xs text-slate-400 uppercase tracking-wide">Fecha de nacimiento</dt>
+          <dd className="mt-1 font-medium text-slate-800">
+            {athlete.birth_date?.trim()
+              ? formatDisplayDate(athlete.birth_date)
+              : "—"}
+          </dd>
+        </div>
         <div>
           <dt className="text-xs text-slate-400 uppercase tracking-wide">Edad</dt>
           <dd className="mt-1 font-medium text-slate-800">{display(athlete.age, " años")}</dd>

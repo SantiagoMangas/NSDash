@@ -20,7 +20,13 @@ from .panel_helpers import (
 from .session_calculators import hiit_continuo, hiit_corto, hiit_largo, mas_training, rsa, tempo_run
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
 from .demo_seed import has_demo_data, seed_demo_data, seed_resistencia_demo_data
+from .strength_percentage import (
+    apply_exercise_percentage_curves,
+    build_percentage_table,
+    migrate_exercise_percentage_curve_column,
+)
 from .strength_rm import (
+    DEFAULT_RM_COEFFICIENT,
     apply_exercise_rm_profiles,
     compute_estimated_rm,
     get_exercise_for_log,
@@ -64,6 +70,17 @@ STRENGTH_EXERCISES = [
     "Push Press - Br",
     "Thruster - Br",
     "Hips Thrust",
+    "Peso muerto - Sumo",
+    "Peso muerto - Convencional",
+    "Oly - Clean",
+    "Oly - Clean and Jerk",
+    "Oly - Split Jerk",
+    "Oly - Snatch",
+    "Oly - Power Jerk",
+    "DLO - Hang Sq Clean",
+    "DLO - Hang Sq Snatch",
+    "DLO - Hang Power Clean",
+    "DLO - Hang Power Snatch",
 ]
 
 # Renombra ejercicios legacy para conservar registros históricos (mismo exercise_id).
@@ -97,20 +114,6 @@ ATHLETE_PANEL_COLUMNS: dict[str, str] = {
 SPEED_TEST_COLUMNS: dict[str, str] = {
     "velocidad_pico_kmh": "FLOAT",
 }
-
-PERCENTAGE_MAP = {
-    1: 100.0,
-    2: 97.5,
-    3: 95.0,
-    4: 92.5,
-    5: 90.0,
-    6: 87.5,
-    7: 85.0,
-    8: 82.5,
-    9: 80.0,
-    10: 77.5,
-}
-
 
 def migrate_athlete_profile_columns() -> None:
     existing_columns = {
@@ -184,14 +187,6 @@ def migrate_strength_exercises(db: Session) -> None:
         db.commit()
 
 
-def build_percentage_table(estimated_rm: float) -> list[dict[str, float | int]]:
-    table = []
-    for reps, percentage in PERCENTAGE_MAP.items():
-        weight = round(float(estimated_rm) * (percentage / 100), 2)
-        table.append({"reps": reps, "percentage": percentage, "weight": weight})
-    return table
-
-
 DEFAULT_ADMIN_EMAIL = "admin@ns.com"
 DEFAULT_ADMIN_PASSWORD = "1234"
 
@@ -204,6 +199,7 @@ def on_startup() -> None:
     migrate_athlete_panel_columns()
     migrate_speed_test_columns()
     migrate_exercise_rm_columns()
+    migrate_exercise_percentage_curve_column()
     with SessionLocal() as db:
         if db.query(models.User).count() == 0:
             db.add(
@@ -216,6 +212,7 @@ def on_startup() -> None:
             db.commit()
         migrate_strength_exercises(db)
         apply_exercise_rm_profiles(db)
+        apply_exercise_percentage_curves(db)
         recalculate_all_training_logs_rm(db)
         seed_sports_catalog(db)
         if not has_demo_data(db):
@@ -680,18 +677,77 @@ def get_owned_rsa_fatigue_test(
     return test
 
 
-@app.post("/exercises")
-def create_exercise() -> None:
-    raise HTTPException(
-        status_code=405,
-        detail="Exercise creation is disabled. Use predefined strength exercises.",
+def list_catalog_exercises(db: Session) -> list[models.Exercise]:
+    all_exercises = db.query(models.Exercise).all()
+    by_name = {exercise.name: exercise for exercise in all_exercises}
+    ordered = [by_name[name] for name in STRENGTH_EXERCISES if name in by_name]
+    predefined = set(STRENGTH_EXERCISES)
+    extra = sorted(
+        [exercise for exercise in all_exercises if exercise.name not in predefined],
+        key=lambda exercise: exercise.name.casefold(),
     )
+    return ordered + extra
+
+
+_CATALOG_SEED_NAMES = frozenset(STRENGTH_EXERCISES)
+
+
+def exercise_allows_patch(exercise: models.Exercise) -> bool:
+    """Whether PATCH /exercises/{id} may modify this row (when implemented).
+
+    Only exercises created via POST /exercises (custom names) are editable.
+    The 21 seed catalog entries in STRENGTH_EXERCISES must never be patched.
+    """
+    return exercise.name not in _CATALOG_SEED_NAMES
+
+
+@app.post("/exercises", response_model=schemas.ExerciseResponse)
+def create_exercise(
+    payload: schemas.ExerciseCreate,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> models.Exercise:
+    existing = (
+        db.query(models.Exercise).filter(models.Exercise.name == payload.name).first()
+    )
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe un ejercicio con ese nombre.",
+        )
+
+    rm_coefficient = (
+        payload.rm_coefficient
+        if payload.formula_type == "epley"
+        else DEFAULT_RM_COEFFICIENT
+    )
+    exercise = models.Exercise(
+        name=payload.name,
+        formula_type=payload.formula_type,
+        rm_coefficient=rm_coefficient,
+        percentage_curve=payload.percentage_curve,
+    )
+    db.add(exercise)
+    db.commit()
+    db.refresh(exercise)
+    return exercise
 
 
 @app.get("/exercises", response_model=list[schemas.ExerciseResponse])
 def list_exercises(db: Session = Depends(get_db)) -> list[models.Exercise]:
-    by_name = {exercise.name: exercise for exercise in db.query(models.Exercise).all()}
-    return [by_name[name] for name in STRENGTH_EXERCISES if name in by_name]
+    return list_catalog_exercises(db)
+
+
+@app.get("/exercises/{exercise_id}", response_model=schemas.ExerciseResponse)
+def get_exercise(
+    exercise_id: int, db: Session = Depends(get_db)
+) -> models.Exercise:
+    exercise = (
+        db.query(models.Exercise).filter(models.Exercise.id == exercise_id).first()
+    )
+    if exercise is None:
+        raise HTTPException(status_code=404, detail="Ejercicio no encontrado.")
+    return exercise
 
 
 @app.post("/logs", response_model=schemas.TrainingLogResponse)
@@ -778,7 +834,8 @@ def get_log_percentages(
     if not athlete or athlete.coach_id != current_user:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    return build_percentage_table(float(log.estimated_rm))
+    exercise = db.query(models.Exercise).filter(models.Exercise.id == log.exercise_id).first()
+    return build_percentage_table(float(log.estimated_rm), exercise=exercise)
 
 
 @app.get("/athletes/{athlete_id}/progress/{exercise_id}")
@@ -829,7 +886,7 @@ def get_log_summary(log_id: int, db: Session = Depends(get_db), current_user: in
     exercise = db.query(models.Exercise).filter(models.Exercise.id == log.exercise_id).first()
     exercise_name = exercise.name if exercise else "Unknown Exercise"
 
-    percentages = build_percentage_table(float(log.estimated_rm))
+    percentages = build_percentage_table(float(log.estimated_rm), exercise=exercise)
 
     return {
         "exercise": exercise_name,
@@ -837,7 +894,17 @@ def get_log_summary(log_id: int, db: Session = Depends(get_db), current_user: in
         "reps": log.reps,
         "date": log.date,
         "estimated_rm": round(float(log.estimated_rm), 2),
-        "percentages": [{"reps": row["reps"], "weight": row["weight"]} for row in percentages],
+        "percentage_curve": exercise.percentage_curve if exercise else None,
+        "percentages": [
+            {
+                "percentage": row["percentage"],
+                "reps": row["reps"],
+                "weight": row["weight"],
+                "rir_plus_1": row["rir_plus_1"],
+                "rir_plus_2": row["rir_plus_2"],
+            }
+            for row in percentages
+        ],
     }
 
 

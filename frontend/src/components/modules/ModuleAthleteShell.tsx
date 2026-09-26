@@ -8,7 +8,7 @@ import { useToast } from "@/contexts/ToastContext";
 import { getAthlete, getAthletes } from "@/lib/api/athletes";
 import { getTeams, type Team } from "@/lib/api/teams";
 import { parseAthlete } from "@/lib/athletes/parseAthlete";
-import { getToken } from "@/lib/storage";
+import { getToken, persistSessionAtletaId } from "@/lib/storage";
 import type { Athlete } from "@/lib/types";
 
 type Props = {
@@ -53,6 +53,10 @@ export function ModuleAthleteShell({
   useEffect(() => {
     setAthleteId(athleteIdFromUrl);
   }, [athleteIdFromUrl]);
+
+  useEffect(() => {
+    persistSessionAtletaId(athleteId);
+  }, [athleteId]);
 
   useEffect(() => {
     getAthletes()

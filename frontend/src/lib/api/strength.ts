@@ -3,18 +3,86 @@ import { del, get, patch, post } from "@/lib/api/client";
 export type Exercise = {
   id: number;
   name: string;
+  formula_type: string;
+  rm_coefficient: number;
+  percentage_curve: string;
 };
 
-export async function getExercises(): Promise<Exercise[]> {
-  const data = await get("/exercises");
-  if (!Array.isArray(data)) return [];
-  return data.filter(
-    (item): item is Exercise =>
-      item !== null &&
-      typeof item === "object" &&
-      typeof item.id === "number" &&
-      typeof item.name === "string",
+function parseOptionalNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+/** True si el JSON trae los campos de catálogo (backend actualizado). */
+export function exercisePayloadHasCatalogMeta(item: unknown): boolean {
+  if (!item || typeof item !== "object") return false;
+  const record = item as Record<string, unknown>;
+  return (
+    typeof record.formula_type === "string" &&
+    parseOptionalNumber(record.rm_coefficient) !== null &&
+    typeof record.percentage_curve === "string"
   );
+}
+
+function parseExercise(item: unknown): Exercise | null {
+  if (!item || typeof item !== "object") return null;
+  const record = item as Record<string, unknown>;
+  if (typeof record.id !== "number" || typeof record.name !== "string") return null;
+  const hasMeta = exercisePayloadHasCatalogMeta(item);
+  return {
+    id: record.id,
+    name: record.name,
+    formula_type: hasMeta ? String(record.formula_type) : "epley",
+    rm_coefficient: hasMeta
+      ? (parseOptionalNumber(record.rm_coefficient) as number)
+      : 1 / 30,
+    percentage_curve: hasMeta ? String(record.percentage_curve) : "sentadilla",
+  };
+}
+
+export async function getExercises(): Promise<{
+  exercises: Exercise[];
+  catalogMetaComplete: boolean;
+}> {
+  const data = await get("/exercises");
+  if (!Array.isArray(data)) {
+    return { exercises: [], catalogMetaComplete: false };
+  }
+  const exercises = data
+    .map(parseExercise)
+    .filter((item): item is Exercise => item !== null);
+  const catalogMetaComplete =
+    data.length > 0 && data.every((item) => exercisePayloadHasCatalogMeta(item));
+  return { exercises, catalogMetaComplete };
+}
+
+export type ExerciseCreatePayload = {
+  name: string;
+  formula_type: "epley" | "brzycki";
+  rm_coefficient?: number;
+  percentage_curve: string;
+};
+
+export async function createExercise(payload: ExerciseCreatePayload): Promise<Exercise> {
+  const data = await post("/exercises", payload);
+  const parsed = parseExercise(data);
+  if (!parsed) {
+    throw new Error("Respuesta de ejercicio inválida.");
+  }
+  return parsed;
+}
+
+export async function getExercise(exerciseId: number): Promise<Exercise | null> {
+  try {
+    const data = await get(`/exercises/${exerciseId}`);
+    return parseExercise(data);
+  } catch {
+    return null;
+  }
 }
 
 export async function getAllLogs(): Promise<any> {

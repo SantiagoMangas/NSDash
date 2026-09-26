@@ -31,6 +31,17 @@ EXERCISE_RM_PROFILES: dict[str, tuple[str, float]] = {
     "Peso muerto rumano": ("epley", 0.018),
     # PLACEHOLDER Nico — revisar coeficiente real
     "Hips Thrust": ("epley", 0.024),
+    "Peso muerto - Sumo": ("epley", 0.018),
+    "Peso muerto - Convencional": ("epley", 0.018),
+    "Oly - Clean": ("brzycki", DEFAULT_RM_COEFFICIENT),
+    "Oly - Clean and Jerk": ("brzycki", DEFAULT_RM_COEFFICIENT),
+    "Oly - Split Jerk": ("brzycki", DEFAULT_RM_COEFFICIENT),
+    "Oly - Snatch": ("brzycki", DEFAULT_RM_COEFFICIENT),
+    "Oly - Power Jerk": ("brzycki", DEFAULT_RM_COEFFICIENT),
+    "DLO - Hang Sq Clean": ("brzycki", DEFAULT_RM_COEFFICIENT),
+    "DLO - Hang Sq Snatch": ("brzycki", DEFAULT_RM_COEFFICIENT),
+    "DLO - Hang Power Clean": ("brzycki", DEFAULT_RM_COEFFICIENT),
+    "DLO - Hang Power Snatch": ("brzycki", DEFAULT_RM_COEFFICIENT),
 }
 
 LAST_RM_RECALC: dict[str, Any] = {

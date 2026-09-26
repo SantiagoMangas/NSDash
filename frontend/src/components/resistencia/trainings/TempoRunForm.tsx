@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { calculateTempoRun, type TempoRunCalculateResponse } from "@/lib/api/sessions";
+import { DateInputWithDisplay } from "@/components/ui/DateInputWithDisplay";
 import { getTodayDate } from "@/lib/date";
 import type { IntervalTable } from "@/lib/types";
 import { parseApiError } from "@/lib/utils";
@@ -123,16 +124,14 @@ export function TempoRunForm({ speedTestTable }: Props) {
             <option value="I. Recovery">I. Recovery</option>
           </select>
         </Field>
-        <Field id="tempo-fecha" label="Fecha">
-          <input
-            id="tempo-fecha"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            required
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition w-full"
-          />
-        </Field>
+        <DateInputWithDisplay
+          id="tempo-fecha"
+          label="Fecha"
+          value={date}
+          onChange={setDate}
+          required
+          className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition w-full"
+        />
         <Field id="tempo-int-min" label="Intensidad mín (%)">
           <input id="tempo-int-min" type="number" min="0" step="any" value={intensidadMin} onChange={(e) => setIntensidadMin(e.target.value)} className={inputClassName()} />
         </Field>

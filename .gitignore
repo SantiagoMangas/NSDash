@@ -15,3 +15,11 @@ backend/data/
 
 # Local capture output (scripts stay in repo)
 frontend/nico-screenshots/
+
+# Accidental local npm / temp
+backend/node_modules/
+backend/package-lock.json
+frontend/date-format-*.png
+frontend/date-format-*.html
+tmp-*.json
+tmp-*.html

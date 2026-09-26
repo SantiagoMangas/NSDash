@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { DateInputWithDisplay } from "@/components/ui/DateInputWithDisplay";
 import { updateTrainingLog } from "@/lib/api/strength";
 import { parseApiError } from "@/lib/utils";
 
@@ -113,19 +114,14 @@ export function StrengthLogEditModal({ open, log, onClose, onSaved }: Props) {
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-          <div>
-            <label htmlFor="edit-log-date" className="block text-xs text-slate-500 mb-1">
-              Fecha
-            </label>
-            <input
-              id="edit-log-date"
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-              required
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-            />
-          </div>
+          <DateInputWithDisplay
+            id="edit-log-date"
+            label="Fecha"
+            value={date}
+            onChange={setDate}
+            required
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+          />
 
           <div className="grid grid-cols-2 gap-4">
             <div>
