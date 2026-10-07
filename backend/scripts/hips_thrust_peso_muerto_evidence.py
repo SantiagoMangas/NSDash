@@ -24,8 +24,8 @@ EXPECTED_PCTS = [100.0, 95.0, 93.0, 90.0, 87.0, 85.0, 80.0, 75.0]
 
 def main() -> None:
     with SessionLocal() as db:
-        hips = db.query(Exercise).filter(Exercise.name == "Hips Thrust").first()
-        dead = db.query(Exercise).filter(Exercise.name == "Peso muerto").first()
+        hips = db.query(Exercise).filter(Exercise.name == "Hips Thrust - Br").first()
+        dead = db.query(Exercise).filter(Exercise.name == "Peso muerto - Convencional").first()
         if hips is None or dead is None:
             print("ERROR: missing seed exercises", file=sys.stderr)
             sys.exit(1)
@@ -85,7 +85,7 @@ def main() -> None:
     summary = client.get(f"/logs/{log_id}/summary", headers=headers)
     assert summary.status_code == 200, summary.text
     body = summary.json()
-    assert body["exercise"] == "Hips Thrust"
+    assert body["exercise"] == "Hips Thrust - Br"
     assert body["percentage_curve"] == "peso_muerto"
 
     dead_ref = build_percentage_table(float(body["estimated_rm"]), curve_key="peso_muerto")
