@@ -18,6 +18,7 @@ CATALOG: dict[str, list[str]] = {
     "Lucha": ["Estilo libre", "Grecorromana"],
     "Boxeo/Karate": ["Por categoría"],
     "Natación": ["Libre", "Espalda", "Pecho", "Mariposa", "Combinado"],
+    "Vóley": ["Punta", "Opuesto", "Central", "Armador", "Líbero"],
 }
 
 

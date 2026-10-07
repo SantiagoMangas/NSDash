@@ -27,6 +27,7 @@ class TestPercentageCurves:
             "weight": 92.5,
             "rir_plus_1": 2,
             "rir_plus_2": 1,
+            "rir_plus_3": 0,
         }
 
     def test_peso_muerto_differs_at_third_row(self):
@@ -93,3 +94,18 @@ class TestPercentageCurves:
         assert row["reps"] == 1
         assert row["rir_plus_1"] == 0
         assert row["rir_plus_2"] == 0
+        assert row["rir_plus_3"] == 0
+
+    def test_rir_plus_3_for_ten_reps_row(self):
+        rows = build_percentage_table(100.0, curve_key="sentadilla")
+        row = next(r for r in rows if r["reps"] == 10)
+        assert row["rir_plus_1"] == 9
+        assert row["rir_plus_2"] == 8
+        assert row["rir_plus_3"] == 7
+
+    def test_rir_plus_3_for_three_reps_row(self):
+        rows = build_percentage_table(100.0, curve_key="sentadilla")
+        row = next(r for r in rows if r["reps"] == 3)
+        assert row["rir_plus_1"] == 2
+        assert row["rir_plus_2"] == 1
+        assert row["rir_plus_3"] == 0

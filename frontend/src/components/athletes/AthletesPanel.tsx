@@ -6,6 +6,7 @@ import { createTeam } from "@/lib/api/teams";
 import type { Team } from "@/lib/api/teams";
 import type { Athlete } from "@/lib/types";
 import { athleteInitials, splitAthleteName } from "@/lib/athleteName";
+import { resolveAthletePhotoUrl } from "@/lib/api/uploads";
 import { parseApiError } from "@/lib/utils";
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { AthleteEditModal } from "./AthleteEditModal";
@@ -267,15 +268,18 @@ export function AthletesPanel({
                   tabIndex={rowClickable ? 0 : undefined}
                 >
                   <div className="w-9 h-9 rounded-full bg-slate-200 flex-shrink-0 overflow-hidden flex items-center justify-center text-xs font-semibold text-slate-600">
-                    {athlete.photo_url ? (
-                      <img
-                        src={athlete.photo_url}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      athleteInitials(firstName, lastName)
-                    )}
+                    {(() => {
+                      const photoSrc = resolveAthletePhotoUrl(athlete.photo_url);
+                      return photoSrc ? (
+                        <img
+                          src={photoSrc}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        athleteInitials(firstName, lastName)
+                      );
+                    })()}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-800 truncate">
@@ -369,6 +373,7 @@ export function AthletesPanel({
         athlete={editAthlete}
         teams={teams}
         onClose={() => setEditAthlete(null)}
+        onRefetch={() => void onRefreshAthletes()}
         onSaved={async () => {
           await onRefreshAthletes();
           onToast("success", "Ficha del atleta actualizada");

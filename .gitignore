@@ -8,6 +8,7 @@ backend/.venv/
 backend/app/database.db
 backend/backups/
 backend/data/
+backend/app/uploads/
 
 # Environment
 .env

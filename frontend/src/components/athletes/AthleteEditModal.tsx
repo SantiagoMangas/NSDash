@@ -19,9 +19,11 @@ type Props = {
   teams: Team[];
   onClose: () => void;
   onSaved: () => void;
+  /** Refrescar datos del atleta sin cerrar el modal (p. ej. tras subir foto). */
+  onRefetch?: () => void;
 };
 
-export function AthleteEditModal({ open, athlete, teams, onClose, onSaved }: Props) {
+export function AthleteEditModal({ open, athlete, teams, onClose, onSaved, onRefetch }: Props) {
   const [form, setForm] = useState<AthleteFormState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -70,7 +72,14 @@ export function AthleteEditModal({ open, athlete, teams, onClose, onSaved }: Pro
           <h2 className="text-base font-semibold text-slate-800">Editar atleta</h2>
         </div>
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-          <AthleteFormFields form={form} onChange={setForm} teams={teams} idPrefix="edit-athlete" />
+          <AthleteFormFields
+            form={form}
+            onChange={setForm}
+            teams={teams}
+            idPrefix="edit-athlete"
+            persistAthleteId={athlete.id}
+            onPhotoPersisted={onRefetch ?? onSaved}
+          />
           {error && (
             <p className="text-red-500 text-sm bg-red-50 rounded-lg px-3 py-2">{error}</p>
           )}

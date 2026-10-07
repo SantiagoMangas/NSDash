@@ -82,6 +82,46 @@ export async function post<T>(
   });
 }
 
+export async function postForm<T>(
+  endpoint: string,
+  formData: FormData,
+  options?: Omit<RequestOptions, "method" | "body">,
+): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const url = `${BASE_URL}${endpoint}`;
+  const response = await fetch(url, {
+    ...options,
+    method: "POST",
+    headers: {
+      ...headers,
+      ...(options?.headers || {}),
+    },
+    body: formData,
+  });
+  if (!response.ok) {
+    let detail: unknown;
+    try {
+      const body = await response.json();
+      detail = (body as { detail?: unknown })?.detail;
+    } catch {
+      /* body may not be JSON */
+    }
+    const error = new Error(
+      `API request failed: ${response.status} ${response.statusText}`,
+    );
+    (error as { status?: number; detail?: unknown }).status = response.status;
+    if (detail !== undefined) {
+      (error as { detail?: unknown }).detail = detail;
+    }
+    throw error;
+  }
+  return (await response.json()) as T;
+}
+
 export async function patch<T>(
   endpoint: string,
   body?: any,

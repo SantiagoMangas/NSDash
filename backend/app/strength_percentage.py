@@ -82,6 +82,7 @@ class PercentageTableRow(TypedDict):
     weight: float
     rir_plus_1: int
     rir_plus_2: int
+    rir_plus_3: int
 
 
 def resolve_percentage_curve(exercise: Exercise | None) -> PercentageCurveKey:
@@ -115,6 +116,7 @@ def build_percentage_table(
                 "weight": weight,
                 "rir_plus_1": max(reps - 1, 0),
                 "rir_plus_2": max(reps - 2, 0),
+                "rir_plus_3": max(reps - 3, 0),
             }
         )
     return table

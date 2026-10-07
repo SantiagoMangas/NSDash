@@ -11,7 +11,7 @@ import {
   isPercentageCurveKey,
   type PercentageCurveKey,
 } from "@/lib/strength/exerciseCatalog";
-import { filterExercisesByName } from "@/lib/strength/exerciseSearch";
+import { filterExercisesForPanel } from "@/lib/strength/exerciseSearch";
 import { readSessionAtletaId } from "@/lib/storage";
 
 function parseCurveFromSearch(raw: string | null): PercentageCurveKey | null {
@@ -68,7 +68,7 @@ export function ExercisesCatalogClient() {
   };
 
   const filteredExercises = useMemo(() => {
-    let list = filterExercisesByName(exercises, searchQuery);
+    let list = filterExercisesForPanel(exercises, searchQuery);
     if (selectedCurve !== null) {
       list = list.filter((exercise) => {
         const key = isPercentageCurveKey(exercise.percentage_curve)

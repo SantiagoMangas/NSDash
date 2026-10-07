@@ -7,6 +7,7 @@ import type { Athlete } from "@/lib/types";
 import type { Team } from "@/lib/api/teams";
 import { athleteInitials, splitAthleteName } from "@/lib/athleteName";
 import { formatDisplayDate } from "@/lib/date";
+import { resolveAthletePhotoUrl } from "@/lib/api/uploads";
 import { parseApiError } from "@/lib/utils";
 import { AthleteEditModal } from "./AthleteEditModal";
 
@@ -36,6 +37,7 @@ export function AthleteProfileHeader({
   const [editOpen, setEditOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const { firstName, lastName } = splitAthleteName(athlete.name);
+  const photoSrc = resolveAthletePhotoUrl(athlete.photo_url);
 
   const handleDelete = async () => {
     if (isDeleting) return;
@@ -67,8 +69,8 @@ export function AthleteProfileHeader({
       >
         <div className="flex items-center gap-4 min-w-0">
           <div className="w-14 h-14 rounded-full bg-slate-200 flex-shrink-0 overflow-hidden flex items-center justify-center text-sm font-semibold text-slate-600">
-            {athlete.photo_url ? (
-              <img src={athlete.photo_url} alt="" className="w-full h-full object-cover" />
+            {photoSrc ? (
+              <img src={photoSrc} alt="" className="w-full h-full object-cover" />
             ) : (
               athleteInitials(firstName, lastName)
             )}
@@ -79,9 +81,15 @@ export function AthleteProfileHeader({
               {lastName ? <span className="text-slate-600"> {lastName}</span> : null}
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              {display(athlete.sport)}
-              {athlete.position_name ? ` · ${athlete.position_name}` : ""}
-              <span className="text-slate-400"> · {expanded ? "Ocultar ficha" : "Ver ficha"}</span>
+              {athlete.sport?.trim() || athlete.position_name?.trim() ? (
+                <>
+                  {athlete.sport?.trim() ? display(athlete.sport) : null}
+                  {athlete.sport?.trim() && athlete.position_name?.trim() ? " · " : null}
+                  {athlete.position_name?.trim() ? athlete.position_name : null}
+                  <span className="text-slate-400"> · </span>
+                </>
+              ) : null}
+              <span className="text-slate-400">{expanded ? "Ocultar ficha" : "Ver ficha"}</span>
             </p>
           </div>
         </div>
@@ -161,6 +169,7 @@ export function AthleteProfileHeader({
         athlete={athlete}
         teams={teams}
         onClose={() => setEditOpen(false)}
+        onRefetch={onAthleteUpdated}
         onSaved={() => {
           onAthleteUpdated();
           onToast("success", "Ficha del atleta actualizada");

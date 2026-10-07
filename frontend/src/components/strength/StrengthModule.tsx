@@ -18,7 +18,7 @@ import {
   StrengthLogEditModal,
   type StrengthLogEditData,
 } from "@/components/strength/StrengthLogEditModal";
-import { DateInputWithDisplay } from "@/components/ui/DateInputWithDisplay";
+import { DateFormatHintLine, DateInputWithDisplay } from "@/components/ui/DateInputWithDisplay";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import { useToast } from "@/contexts/ToastContext";
 import { DATE_RANGE_OPTIONS } from "@/lib/constants";
@@ -46,11 +46,10 @@ import {
   persistDateRange,
   persistExerciseId,
   readStoredDateRange,
-  readStoredExerciseId,
   STORAGE_KEYS,
 } from "@/lib/storage";
 import type { DateRange } from "@/lib/types";
-import { filterExercisesByName } from "@/lib/strength/exerciseSearch";
+import { ExercisePicker } from "@/components/strength/ExercisePicker";
 import {
   formatRelativeStrength,
   hasBodyWeightForRelative,
@@ -71,6 +70,9 @@ function parseEjercicioParam(raw: string | null): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+const LIST_INITIAL_VISIBLE = 3;
+const LIST_VISIBLE_STEP = 10;
+
 export function StrengthModule({
   athleteId,
   athleteName,
@@ -84,9 +86,7 @@ export function StrengthModule({
 
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [isLoadingExercises, setIsLoadingExercises] = useState(false);
-  const [selectedExerciseId, setSelectedExerciseId] = useState<number | null>(
-    () => readStoredExerciseId(),
-  );
+  const [selectedExerciseId, setSelectedExerciseId] = useState<number | null>(null);
   const [logs, setLogs] = useState<ProgressListItem[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [logsReloadToken, setLogsReloadToken] = useState(0);
@@ -104,15 +104,10 @@ export function StrengthModule({
   const [dateRange, setDateRange] = useState<DateRange>(() =>
     readStoredDateRange(STORAGE_KEYS.dateRange),
   );
-  const [exerciseSearchQuery, setExerciseSearchQuery] = useState("");
+  const [listVisibleCount, setListVisibleCount] = useState(LIST_INITIAL_VISIBLE);
 
   const weightInputRef = useRef<HTMLInputElement | null>(null);
   const selectedExercise = exercises.find((e) => e.id === selectedExerciseId) ?? null;
-  const filteredExercises = useMemo(
-    () => filterExercisesByName(exercises, exerciseSearchQuery),
-    [exercises, exerciseSearchQuery],
-  );
-
   useEffect(() => {
     prefsReadyRef.current = true;
   }, []);
@@ -154,9 +149,13 @@ export function StrengthModule({
   }, [dateRange]);
 
   useEffect(() => {
-    if (!prefsReadyRef.current) return;
-    persistExerciseId(selectedExerciseId);
-  }, [selectedExerciseId]);
+    persistExerciseId(null);
+  }, []);
+
+  useEffect(() => {
+    if (ejercicioFromUrl !== null) return;
+    setSelectedExerciseId(null);
+  }, [athleteId, ejercicioFromUrl]);
 
   useEffect(() => {
     const loadLogs = async () => {
@@ -220,6 +219,16 @@ export function StrengthModule({
       return !Number.isNaN(d.getTime()) && d >= cutoff;
     });
   }, [logs, dateRange]);
+
+  useEffect(() => {
+    setListVisibleCount(LIST_INITIAL_VISIBLE);
+  }, [athleteId, selectedExerciseId, dateRange, filteredLogs.length]);
+
+  const visibleListLogs = useMemo(
+    () => filteredLogs.slice(0, listVisibleCount),
+    [filteredLogs, listVisibleCount],
+  );
+  const hiddenListCount = Math.max(0, filteredLogs.length - listVisibleCount);
 
   const chartData = useMemo(
     () =>
@@ -288,6 +297,11 @@ export function StrengthModule({
 
   const handleToggleLogTable = (logId: number) => {
     setExpandedLogId((current) => (current === logId ? null : logId));
+  };
+
+  const handleCollapseLogTable = () => {
+    setExpandedLogId(null);
+    setExpandedLogSummary(null);
   };
 
   const handleCreateLog = async (event: FormEvent<HTMLFormElement>) => {
@@ -423,36 +437,12 @@ export function StrengthModule({
         ) : exercises.length === 0 ? (
           <p className="text-sm text-slate-400">No hay ejercicios disponibles.</p>
         ) : (
-          <>
-            <input
-              type="search"
-              value={exerciseSearchQuery}
-              onChange={(e) => setExerciseSearchQuery(e.target.value)}
-              placeholder="Buscar ejercicio…"
-              aria-label="Buscar ejercicio"
-              className="mb-3 w-full max-w-md border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            {filteredExercises.length === 0 ? (
-              <p className="text-sm text-slate-400">Ningún ejercicio coincide con la búsqueda.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {filteredExercises.map((exercise) => (
-                  <button
-                    key={exercise.id}
-                    type="button"
-                    onClick={() => handleSelectExercise(exercise.id)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 ${
-                      selectedExerciseId === exercise.id
-                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:opacity-90"
-                    }`}
-                  >
-                    {exercise.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
+          <ExercisePicker
+            exercises={exercises}
+            selectedExerciseId={selectedExerciseId}
+            onSelect={handleSelectExercise}
+            disabled={athleteId === null}
+          />
         )}
         {athleteId === null && (
           <p className="text-xs text-slate-400 mt-3">← Seleccioná un atleta primero.</p>
@@ -496,16 +486,17 @@ export function StrengthModule({
               {" / "}
               <span className="text-indigo-600">{displayExerciseName}</span>
             </h2>
-            <form onSubmit={handleCreateLog} className="flex flex-wrap gap-3 items-end">
+            <form onSubmit={handleCreateLog} className="flex flex-wrap items-end gap-x-4 gap-y-3">
               <DateInputWithDisplay
                 id="log-date"
                 label="Fecha"
                 value={date}
                 onChange={setDate}
                 required
-                className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+                wrapperClassName="w-36 shrink-0"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
               />
-              <div>
+              <div className="shrink-0">
                 <label htmlFor="log-weight" className="block text-xs text-slate-500 mb-1">Peso (kg)</label>
                 <input
                   id="log-weight"
@@ -516,8 +507,9 @@ export function StrengthModule({
                   ref={weightInputRef}
                   className="w-28 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
                 />
+                <DateFormatHintLine visible={false} />
               </div>
-              <div>
+              <div className="shrink-0">
                 <label htmlFor="log-reps" className="block text-xs text-slate-500 mb-1">Repeticiones</label>
                 <input
                   id="log-reps"
@@ -527,14 +519,21 @@ export function StrengthModule({
                   required
                   className="w-20 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
                 />
+                <DateFormatHintLine visible={false} />
               </div>
-              <button
-                type="submit"
-                disabled={isSavingLog}
-                className="px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50"
-              >
-                {isSavingLog ? "Guardando..." : "Guardar Registro"}
-              </button>
+              <div className="shrink-0">
+                <span className="block text-xs text-slate-500 mb-1 invisible" aria-hidden>
+                  Acción
+                </span>
+                <button
+                  type="submit"
+                  disabled={isSavingLog}
+                  className="px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {isSavingLog ? "Guardando..." : "Guardar Registro"}
+                </button>
+                <DateFormatHintLine visible={false} />
+              </div>
             </form>
             {saveLogError && <p className="text-red-500 text-sm mt-3">{saveLogError}</p>}
           </section>
@@ -690,36 +689,47 @@ export function StrengthModule({
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between gap-2 mb-1">
                   <h3 className="text-sm font-semibold text-slate-600">Listado</h3>
                   <span className="text-xs text-slate-400">
                     {filteredLogs.length} de {logs.length} en el rango
                   </span>
                 </div>
+                <p className="text-xs text-slate-400 mb-3">
+                  Tocá una evaluación para ver la tabla de %RM.
+                </p>
                 {filteredLogs.length === 0 ? (
                   <p className="text-sm text-slate-400 text-center py-6">Sin evaluaciones en este rango</p>
                 ) : (
-                  <ul className="divide-y divide-slate-100">
-                    {filteredLogs.map((log) => {
+                  <ul className="space-y-2">
+                    {visibleListLogs.map((log) => {
                       const loadRel = relativeStrength(log.weight, athleteBodyWeightKg);
                       const rmRel = relativeStrength(log.estimated_rm, athleteBodyWeightKg);
                       const isExpanded = expandedLogId === log.id;
                       const showSummary = isExpanded && expandedLogSummary;
                       return (
-                        <li key={log.id} className="py-1">
-                          <div className="flex items-center gap-2">
+                        <li
+                          key={log.id}
+                          className={`rounded-xl border overflow-hidden transition-shadow ${
+                            isExpanded
+                              ? "border-indigo-200 shadow-sm shadow-indigo-100"
+                              : "border-slate-200 hover:border-indigo-200 hover:shadow-sm"
+                          }`}
+                        >
+                          <div className="flex items-stretch gap-0">
                             <button
                               type="button"
                               onClick={() => handleToggleLogTable(log.id)}
                               aria-expanded={isExpanded}
-                              className={`flex-1 flex flex-wrap items-center justify-between gap-2 px-3 py-3 rounded-lg text-left transition-colors ${
+                              title={isExpanded ? "Ocultar tabla de %RM" : "Ver tabla de %RM"}
+                              className={`flex-1 flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-left cursor-pointer transition-colors min-w-0 ${
                                 isExpanded
-                                  ? "bg-indigo-50 ring-1 ring-indigo-200"
-                                  : "hover:bg-slate-50"
+                                  ? "bg-indigo-50"
+                                  : "bg-white hover:bg-indigo-50/60"
                               }`}
                             >
-                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                                <span className="text-xs text-slate-400 w-20">
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 min-w-0">
+                                <span className="text-xs text-slate-400 w-20 shrink-0">
                                   {formatDisplayDate(log.date)}
                                 </span>
                                 <span className="text-sm text-slate-700 font-medium">
@@ -729,7 +739,7 @@ export function StrengthModule({
                                   Rel. carga {formatRelativeStrength(loadRel)}
                                 </span>
                               </div>
-                              <div className="text-right">
+                              <div className="text-right shrink-0">
                                 <span className="text-sm font-semibold text-indigo-600 block">
                                   {log.estimated_rm} kg RM
                                 </span>
@@ -738,7 +748,7 @@ export function StrengthModule({
                                 </span>
                               </div>
                             </button>
-                            <div className="flex shrink-0 gap-1 pr-2">
+                            <div className="flex shrink-0 gap-1 px-2 py-2 border-l border-slate-100 bg-slate-50/80 items-center">
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -763,57 +773,76 @@ export function StrengthModule({
                             </div>
                           </div>
                           {isExpanded && (
-                            <div className="px-3 pb-4 pt-2">
-                              <div className="flex flex-wrap items-center gap-2 mb-2">
-                                <h4 className="text-sm font-semibold text-slate-600">Tabla de %RM</h4>
-                                {showSummary && (
-                                  <span className="text-xs text-slate-500 bg-slate-100 rounded-full px-2.5 py-0.5">
-                                    RM de esta evaluación: {expandedLogSummary.estimated_rm} kg
-                                  </span>
-                                )}
+                            <div className="px-3 pb-4 pt-2 border-t border-indigo-100 bg-white">
+                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h4 className="text-sm font-semibold text-slate-600">Tabla de %RM</h4>
+                                  {showSummary && (
+                                    <span className="text-xs text-slate-500 bg-slate-100 rounded-full px-2.5 py-0.5">
+                                      RM de esta evaluación: {expandedLogSummary.estimated_rm} kg
+                                    </span>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={handleCollapseLogTable}
+                                  className="text-xs font-medium text-slate-600 border border-slate-200 bg-white rounded-lg px-3 py-1.5 hover:bg-slate-50 transition"
+                                >
+                                  Ocultar tabla
+                                </button>
                               </div>
                               {isLoadingExpandedSummary && (
                                 <p className="text-sm text-slate-400">Cargando tabla...</p>
                               )}
                               {!isLoadingExpandedSummary && showSummary && (
-                                <div className="overflow-x-auto rounded-xl border border-slate-100">
-                                  <table className="w-full text-sm min-w-[32rem]">
+                                <div
+                                  className="overflow-x-auto rounded-xl border border-slate-200 bg-white text-slate-700"
+                                  style={{ colorScheme: "light" }}
+                                  data-testid="percentage-rm-table"
+                                >
+                                  <table className="w-full text-sm min-w-[36rem] bg-white">
                                     <thead>
-                                      <tr className="bg-slate-50 border-b border-slate-100">
-                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                                      <tr className="bg-slate-100 border-b border-slate-200">
+                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-500">
                                           %RM
                                         </th>
-                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-500">
                                           Reps
                                         </th>
-                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-500">
                                           RIR+1
                                         </th>
-                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-500">
                                           RIR+2
                                         </th>
-                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-500">
+                                          RIR+3
+                                        </th>
+                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-500">
                                           Carga (kg)
                                         </th>
-                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400">
+                                        <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-500">
                                           Fuerza rel.
                                         </th>
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {expandedLogSummary.percentages.map((row) => (
+                                      {expandedLogSummary.percentages.map((row, rowIndex) => (
                                         <tr
                                           key={`${row.percentage}-${row.reps}`}
-                                          className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"
+                                          className={
+                                            rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"
+                                          }
                                         >
-                                          <td className="px-3 py-2.5 text-slate-600">{row.percentage}%</td>
-                                          <td className="px-3 py-2.5 text-slate-600">{row.reps}</td>
-                                          <td className="px-3 py-2.5 text-slate-600">{row.rir_plus_1}</td>
-                                          <td className="px-3 py-2.5 text-slate-600">{row.rir_plus_2}</td>
-                                          <td className="px-3 py-2.5 font-medium text-slate-700">
+                                          <td className="px-3 py-2.5">{row.percentage}%</td>
+                                          <td className="px-3 py-2.5">{row.reps}</td>
+                                          <td className="px-3 py-2.5">{row.rir_plus_1}</td>
+                                          <td className="px-3 py-2.5">{row.rir_plus_2}</td>
+                                          <td className="px-3 py-2.5">{row.rir_plus_3}</td>
+                                          <td className="px-3 py-2.5 font-medium text-slate-800">
                                             {row.weight}
                                           </td>
-                                          <td className="px-3 py-2.5 text-slate-600">
+                                          <td className="px-3 py-2.5">
                                             {formatRelativeStrength(
                                               relativeStrength(row.weight, athleteBodyWeightKg),
                                             )}
@@ -836,6 +865,46 @@ export function StrengthModule({
                     })}
                   </ul>
                 )}
+                {hiddenListCount > 0 || listVisibleCount > LIST_INITIAL_VISIBLE ? (
+                  <div className="flex flex-wrap items-center justify-center gap-2 mt-4 pt-2 border-t border-slate-100">
+                    {hiddenListCount > 0 ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setListVisibleCount((count) =>
+                              Math.min(count + LIST_VISIBLE_STEP, filteredLogs.length),
+                            )
+                          }
+                          className="px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition"
+                        >
+                          Ver {Math.min(LIST_VISIBLE_STEP, hiddenListCount)} evaluaciones más
+                        </button>
+                        {hiddenListCount > LIST_VISIBLE_STEP ? (
+                          <button
+                            type="button"
+                            onClick={() => setListVisibleCount(filteredLogs.length)}
+                            className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+                          >
+                            Ver listado completo ({filteredLogs.length})
+                          </button>
+                        ) : null}
+                      </>
+                    ) : null}
+                    {listVisibleCount > LIST_INITIAL_VISIBLE ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setListVisibleCount(LIST_INITIAL_VISIBLE);
+                          handleCollapseLogTable();
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+                      >
+                        Ocultar listado ({LIST_INITIAL_VISIBLE} más recientes)
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
 
               <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">

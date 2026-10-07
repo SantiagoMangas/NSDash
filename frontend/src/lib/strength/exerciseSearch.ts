@@ -18,3 +18,22 @@ export function filterExercisesByName<T extends { name: string }>(
 ): T[] {
   return items.filter((item) => exerciseMatchesSearch(item.name, query));
 }
+
+/** Ejercicios creados por pruebas E2E o tests de catálogo — no mostrar en el panel. */
+export function isTestCatalogExercise(name: string): boolean {
+  const n = normalizeForSearch(name);
+  if (n.startsWith("prueba catalogo e2e")) return true;
+  if (n === "test brzycki catalog") return true;
+  if (n === "test epley catalog ui") return true;
+  return false;
+}
+
+export function filterExercisesForPanel<T extends { name: string }>(
+  items: T[],
+  query: string,
+): T[] {
+  return filterExercisesByName(
+    items.filter((item) => !isTestCatalogExercise(item.name)),
+    query,
+  );
+}

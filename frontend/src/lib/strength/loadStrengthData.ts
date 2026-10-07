@@ -21,6 +21,7 @@ export type PercentageRow = {
   weight: number;
   rir_plus_1: number;
   rir_plus_2: number;
+  rir_plus_3: number;
 };
 
 export type LogSummary = {
@@ -120,7 +121,8 @@ function parsePercentageRows(raw: unknown): PercentageRow[] {
       typeof (item as PercentageRow).reps === "number" &&
       typeof (item as PercentageRow).weight === "number" &&
       typeof (item as PercentageRow).rir_plus_1 === "number" &&
-      typeof (item as PercentageRow).rir_plus_2 === "number",
+      typeof (item as PercentageRow).rir_plus_2 === "number" &&
+      typeof (item as PercentageRow).rir_plus_3 === "number",
   );
 }
 

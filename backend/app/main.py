@@ -1,9 +1,12 @@
 import math
 import os
+import uuid
+from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -50,6 +53,35 @@ def get_allowed_origins() -> list[str]:
 
 
 app = FastAPI()
+
+UPLOADS_DIR = Path(__file__).resolve().parent / "uploads" / "athlete-photos"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+# Límite razonable para fotos de celular sin saturar disco en el servidor.
+ATHLETE_PHOTO_MAX_BYTES = 8 * 1024 * 1024
+ATHLETE_PHOTO_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/pjpeg": ".jpg",
+    "image/png": ".png",
+    "image/x-png": ".png",
+    "image/webp": ".webp",
+}
+
+
+def _athlete_photo_extension(content_type: str, data: bytes) -> str | None:
+    ct = (content_type or "").split(";")[0].strip().lower()
+    ext = ATHLETE_PHOTO_TYPES.get(ct)
+    if ext is not None:
+        return ext
+    if len(data) >= 3 and data[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if len(data) >= 8 and data[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR.parent), name="uploads")
 
 app.add_middleware(
     CORSMiddleware,
@@ -414,6 +446,20 @@ def delete_sport(
     db_sport = db.query(models.Sport).filter(models.Sport.id == sport_id).first()
     if db_sport is None:
         raise HTTPException(status_code=404, detail="Sport not found")
+    position_ids = [
+        pid
+        for (pid,) in db.query(models.Position.id)
+        .filter(models.Position.sport_id == sport_id)
+        .all()
+    ]
+    if position_ids:
+        db.query(models.Athlete).filter(models.Athlete.position_id.in_(position_ids)).update(
+            {models.Athlete.position_id: None},
+            synchronize_session=False,
+        )
+        db.query(models.Position).filter(models.Position.sport_id == sport_id).delete(
+            synchronize_session=False,
+        )
     db.query(models.Athlete).filter(models.Athlete.sport_id == sport_id).update(
         {models.Athlete.sport_id: None},
         synchronize_session=False,
@@ -513,6 +559,36 @@ def delete_position(
     db.delete(db_position)
     db.commit()
     return {"detail": "Position deleted"}
+
+
+@app.post("/athletes/photo-upload")
+async def upload_athlete_photo(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict[str, str]:
+    data = await file.read()
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="El archivo está vacío.")
+    if len(data) > ATHLETE_PHOTO_MAX_BYTES:
+        max_mb = ATHLETE_PHOTO_MAX_BYTES // (1024 * 1024)
+        raise HTTPException(
+            status_code=400,
+            detail=f"La imagen es demasiado pesada (máximo {max_mb} MB).",
+        )
+    content_type = file.content_type or ""
+    ext = _athlete_photo_extension(content_type, data)
+    if ext is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Formato no permitido. Usá JPG, PNG o WebP (no HEIC).",
+        )
+    filename = f"{current_user}-{uuid.uuid4().hex}{ext}"
+    dest = UPLOADS_DIR / filename
+    dest.write_bytes(data)
+    relative = f"/uploads/athlete-photos/{filename}"
+    base = str(request.base_url).rstrip("/")
+    return {"photo_url": f"{base}{relative}"}
 
 
 @app.post("/athletes", response_model=schemas.AthleteResponse)
@@ -939,6 +1015,7 @@ def get_exercise_percentage_table_best_rm(
                 "weight": row["weight"],
                 "rir_plus_1": row["rir_plus_1"],
                 "rir_plus_2": row["rir_plus_2"],
+                "rir_plus_3": row["rir_plus_3"],
             }
             for row in percentages
         ],
@@ -974,6 +1051,7 @@ def get_log_summary(log_id: int, db: Session = Depends(get_db), current_user: in
                 "weight": row["weight"],
                 "rir_plus_1": row["rir_plus_1"],
                 "rir_plus_2": row["rir_plus_2"],
+                "rir_plus_3": row["rir_plus_3"],
             }
             for row in percentages
         ],
