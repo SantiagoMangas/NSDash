@@ -17,36 +17,50 @@ logger = logging.getLogger(__name__)
 DEFAULT_RM_COEFFICIENT = 1.0 / 30.0
 DEFAULT_FORMULA_TYPE = "epley"
 
+# PROVISORIO (Nico, WhatsApp): Oly y DLO usan Epley 0.033 en lugar de Brzycki — a confirmar.
+EPLEY_OLY_DLO_COEFFICIENT = 0.033
+
+OLY_DLO_EXERCISE_NAMES: tuple[str, ...] = (
+    "Oly - Clean - Cargada",
+    "Oly - Clean & Jerk - Envión",
+    "Oly - Split Jerk - 2do tiempo de tijera",
+    "Oly - Snatch - Arranque",
+    "Oly - Power Jerk - 2do tiempo de potencia",
+    "DLO - Hang Sq Clean - Cargada de Colgado a Profundo",
+    "DLO - Hang Sq Snatch - Arranque de Colgado a Prufundo",
+    "DLO - Hang Power Clean - Cargada de Colgado",
+    "DLO - Hang Power Snatch - Arranque de Colgado",
+)
+
 # Coeficientes confirmados por nombre de ejercicio (familia).
-# Hips Thrust: placeholder — pendiente confirmación Nico.
+# Hips Thrust - Br: epley 0.024 (confirmado Nico, 07/10).
 # Thruster - Br: no está aquí; queda DEFAULT_RM_COEFFICIENT (pendiente Nico).
 EXERCISE_RM_PROFILES: dict[str, tuple[str, float]] = {
-    "Sentadilla frontal": ("epley", 0.033),
-    "Sentadilla Back": ("epley", 0.033),
-    "Sentadilla al Cajon": ("epley", 0.033),
+    "Sentadilla - Front Squat": ("epley", 0.033),
+    "Sentadilla - Box Squat": ("epley", 0.033),
+    "Sentadilla - Back Squat": ("epley", 0.033),
     "Press Plano - Br": ("epley", 0.015),
-    "Press Militar - Br": ("epley", 0.020),
+    "Press Militar - Estricto": ("epley", 0.020),
     "Push Press - Br": ("epley", 0.020),
-    "Peso muerto": ("epley", 0.018),
-    "Peso muerto rumano": ("epley", 0.018),
-    # PLACEHOLDER Nico — revisar coeficiente real
-    "Hips Thrust": ("epley", 0.024),
+    "Peso muerto - Rumano": ("epley", 0.018),
+    "Hips Thrust - Br": ("epley", 0.024),
     "Peso muerto - Sumo": ("epley", 0.018),
     "Peso muerto - Convencional": ("epley", 0.018),
-    "Oly - Clean": ("brzycki", DEFAULT_RM_COEFFICIENT),
-    "Oly - Clean and Jerk": ("brzycki", DEFAULT_RM_COEFFICIENT),
-    "Oly - Split Jerk": ("brzycki", DEFAULT_RM_COEFFICIENT),
-    "Oly - Snatch": ("brzycki", DEFAULT_RM_COEFFICIENT),
-    "Oly - Power Jerk": ("brzycki", DEFAULT_RM_COEFFICIENT),
-    "DLO - Hang Sq Clean": ("brzycki", DEFAULT_RM_COEFFICIENT),
-    "DLO - Hang Sq Snatch": ("brzycki", DEFAULT_RM_COEFFICIENT),
-    "DLO - Hang Power Clean": ("brzycki", DEFAULT_RM_COEFFICIENT),
-    "DLO - Hang Power Snatch": ("brzycki", DEFAULT_RM_COEFFICIENT),
+    "Oly - Clean - Cargada": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
+    "Oly - Clean & Jerk - Envión": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
+    "Oly - Split Jerk - 2do tiempo de tijera": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
+    "Oly - Snatch - Arranque": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
+    "Oly - Power Jerk - 2do tiempo de potencia": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
+    "DLO - Hang Sq Clean - Cargada de Colgado a Profundo": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
+    "DLO - Hang Sq Snatch - Arranque de Colgado a Prufundo": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
+    "DLO - Hang Power Clean - Cargada de Colgado": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
+    "DLO - Hang Power Snatch - Arranque de Colgado": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
 }
 
 LAST_RM_RECALC: dict[str, Any] = {
     "logs_total": 0,
     "logs_updated": 0,
+    "oly_dlo_logs_updated": 0,
     "samples": [],
 }
 
@@ -65,6 +79,19 @@ def compute_estimated_rm(weight: float, reps: int, exercise: Exercise) -> float:
         else DEFAULT_RM_COEFFICIENT
     )
     return float(weight * (1 + reps * coefficient))
+
+
+def exercise_with_rm_profile(exercise: Exercise) -> Exercise:
+    """Copia lógica de apply_exercise_rm_profiles sin persistir (dry-run)."""
+    profile = EXERCISE_RM_PROFILES.get(exercise.name)
+    clone = Exercise(
+        name=exercise.name,
+        formula_type=exercise.formula_type,
+        rm_coefficient=exercise.rm_coefficient,
+    )
+    if profile is not None:
+        clone.formula_type, clone.rm_coefficient = profile
+    return clone
 
 
 def migrate_exercise_rm_columns() -> None:
@@ -108,17 +135,29 @@ def recalculate_all_training_logs_rm(db: Session) -> None:
         .all()
     )
     sample_by_exercise: dict[str, dict[str, Any]] = {}
-    target_exercises = ("Sentadilla Back", "Press Plano - Br", "Peso muerto")
+    reference_exercises = (
+        "Sentadilla - Back Squat",
+        "Press Plano - Br",
+        "Peso muerto - Convencional",
+    )
+    oly_dlo_sample_targets = (
+        "Oly - Clean - Cargada",
+        "DLO - Hang Power Clean - Cargada de Colgado",
+        "Oly - Snatch - Arranque",
+    )
     updated = 0
+    oly_dlo_updated = 0
 
     for log, exercise in logs:
         old_rm = log.estimated_rm
         new_rm = round(compute_estimated_rm(log.weight, log.reps, exercise), 2)
         if old_rm is None or abs(float(old_rm) - new_rm) > 1e-6:
             updated += 1
+            if exercise.name in OLY_DLO_EXERCISE_NAMES:
+                oly_dlo_updated += 1
         log.estimated_rm = new_rm
 
-        if exercise.name in target_exercises and exercise.name not in sample_by_exercise:
+        if exercise.name in reference_exercises and exercise.name not in sample_by_exercise:
             sample_by_exercise[exercise.name] = {
                 "log_id": log.id,
                 "exercise": exercise.name,
@@ -130,10 +169,27 @@ def recalculate_all_training_logs_rm(db: Session) -> None:
                 "estimated_rm_after": new_rm,
             }
 
-    samples = [sample_by_exercise[name] for name in target_exercises if name in sample_by_exercise]
+        if (
+            exercise.name in oly_dlo_sample_targets
+            and exercise.name not in sample_by_exercise
+        ):
+            sample_by_exercise[exercise.name] = {
+                "log_id": log.id,
+                "exercise": exercise.name,
+                "formula": exercise.formula_type,
+                "coefficient": exercise.rm_coefficient,
+                "weight": log.weight,
+                "reps": log.reps,
+                "estimated_rm_before": old_rm,
+                "estimated_rm_after": new_rm,
+            }
+
+    sample_order = list(reference_exercises) + list(oly_dlo_sample_targets)
+    samples = [sample_by_exercise[name] for name in sample_order if name in sample_by_exercise]
     db.commit()
     LAST_RM_RECALC["logs_total"] = len(logs)
     LAST_RM_RECALC["logs_updated"] = updated
+    LAST_RM_RECALC["oly_dlo_logs_updated"] = oly_dlo_updated
     LAST_RM_RECALC["samples"] = samples
     logger.info(
         "RM recalc: %s logs, %s updated, samples=%s",

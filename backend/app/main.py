@@ -59,37 +59,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Nombres exactos hoja "RM para app" (Estimación_1RM_-_E-pley.xlsx).
 STRENGTH_EXERCISES = [
-    "Sentadilla frontal",
-    "Sentadilla Back",
-    "Sentadilla al Cajon",
-    "Peso muerto",
-    "Peso muerto rumano",
-    "Press Plano - Br",
-    "Press Militar - Br",
+    "Sentadilla - Front Squat",
+    "Sentadilla - Box Squat",
+    "Sentadilla - Back Squat",
     "Push Press - Br",
-    "Thruster - Br",
-    "Hips Thrust",
+    "Press Plano - Br",
+    "Press Militar - Estricto",
     "Peso muerto - Sumo",
+    "Peso muerto - Rumano",
     "Peso muerto - Convencional",
-    "Oly - Clean",
-    "Oly - Clean and Jerk",
-    "Oly - Split Jerk",
-    "Oly - Snatch",
-    "Oly - Power Jerk",
-    "DLO - Hang Sq Clean",
-    "DLO - Hang Sq Snatch",
-    "DLO - Hang Power Clean",
-    "DLO - Hang Power Snatch",
+    "Hips Thrust - Br",
+    "Oly - Split Jerk - 2do tiempo de tijera",
+    "Oly - Snatch - Arranque",
+    "Oly - Power Jerk - 2do tiempo de potencia",
+    "Oly - Clean & Jerk - Envión",
+    "Oly - Clean - Cargada",
+    "DLO - Hang Sq Snatch - Arranque de Colgado a Prufundo",
+    "DLO - Hang Sq Clean - Cargada de Colgado a Profundo",
+    "DLO - Hang Power Snatch - Arranque de Colgado",
+    "DLO - Hang Power Clean - Cargada de Colgado",
 ]
 
-# Renombra ejercicios legacy para conservar registros históricos (mismo exercise_id).
+# Renombra ejercicios legacy / catálogo anterior → Excel (conserva exercise_id y logs).
 STRENGTH_EXERCISE_RENAMES: dict[str, str] = {
-    "Back Squat": "Sentadilla Back",
-    "Deadlift": "Peso muerto",
+    "Back Squat": "Sentadilla - Back Squat",
+    "Deadlift": "Peso muerto - Convencional",
     "Bench Press": "Press Plano - Br",
-    "Overhead Press": "Press Militar - Br",
-    "Hip Thrust": "Hips Thrust",
+    "Overhead Press": "Press Militar - Estricto",
+    "Hip Thrust": "Hips Thrust - Br",
+    "Sentadilla frontal": "Sentadilla - Front Squat",
+    "Sentadilla Back": "Sentadilla - Back Squat",
+    "Sentadilla al Cajon": "Sentadilla - Box Squat",
+    "Peso muerto": "Peso muerto - Convencional",
+    "Peso muerto rumano": "Peso muerto - Rumano",
+    "Press Militar - Br": "Press Militar - Estricto",
+    "Hips Thrust": "Hips Thrust - Br",
+    "Thruster - Br": "Sentadilla - Front Squat",
+    "Oly - Clean": "Oly - Clean - Cargada",
+    "Oly - Clean and Jerk": "Oly - Clean & Jerk - Envión",
+    "Oly - Split Jerk": "Oly - Split Jerk - 2do tiempo de tijera",
+    "Oly - Snatch": "Oly - Snatch - Arranque",
+    "Oly - Power Jerk": "Oly - Power Jerk - 2do tiempo de potencia",
+    "DLO - Hang Sq Clean": "DLO - Hang Sq Clean - Cargada de Colgado a Profundo",
+    "DLO - Hang Sq Snatch": "DLO - Hang Sq Snatch - Arranque de Colgado a Prufundo",
+    "DLO - Hang Power Clean": "DLO - Hang Power Clean - Cargada de Colgado",
+    "DLO - Hang Power Snatch": "DLO - Hang Power Snatch - Arranque de Colgado",
 }
 ATHLETE_PROFILE_COLUMNS: dict[str, str] = {
     "sport": "VARCHAR(100)",
@@ -159,10 +175,20 @@ def migrate_strength_exercises(db: Session) -> None:
         )
         if exercise is None:
             continue
-        if (
+        target = (
             db.query(models.Exercise).filter(models.Exercise.name == new_name).first()
-            is not None
-        ):
+        )
+        if target is not None and target.id != exercise.id:
+            db.query(models.TrainingLog).filter(
+                models.TrainingLog.exercise_id == exercise.id
+            ).update(
+                {models.TrainingLog.exercise_id: target.id},
+                synchronize_session=False,
+            )
+            db.delete(exercise)
+            changed = True
+            continue
+        if target is not None:
             continue
         exercise.name = new_name
         changed = True

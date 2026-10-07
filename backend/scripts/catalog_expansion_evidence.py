@@ -1,4 +1,4 @@
-"""Evidencia catálogo ampliado: 21 ejercicios + POST Oly - Clean (Brzycki + curva sentadilla)."""
+"""Evidencia catálogo: Oly - Clean - Cargada (Epley 0.033 prov. + curva sentadilla)."""
 
 import json
 import sys
@@ -12,7 +12,7 @@ from app.db import SessionLocal
 from app.main import STRENGTH_EXERCISES, app, on_startup
 from app.models import Athlete, Exercise
 from app.strength_percentage import build_percentage_table
-from app.strength_rm import compute_estimated_rm
+from app.strength_rm import EPLEY_OLY_DLO_COEFFICIENT, compute_estimated_rm
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -29,11 +29,12 @@ def main() -> None:
     print("=== Startup (inserta ejercicios nuevos + perfiles) ===")
     on_startup()
 
+    oly_name = "Oly - Clean - Cargada"
     with SessionLocal() as db:
-        oly = db.query(Exercise).filter(Exercise.name == "Oly - Clean").first()
-        assert oly is not None, "Falta Oly - Clean en DB"
+        oly = db.query(Exercise).filter(Exercise.name == oly_name).first()
+        assert oly is not None, f"Falta {oly_name} en DB"
         print(
-            f"\nDB Oly - Clean: formula={oly.formula_type}, "
+            f"\nDB {oly_name}: formula={oly.formula_type}, "
             f"coef={oly.rm_coefficient}, curve={oly.percentage_curve}"
         )
 
@@ -45,19 +46,19 @@ def main() -> None:
     for item in exercises:
         print(f"  {item['id']:>3}  {item['name']}")
 
-    ok_count = len(exercises) == len(STRENGTH_EXERCISES) == 21
-    print(f"\nTotal 21 ejercicios: {'OK' if ok_count else 'FALLO'}")
+    ok_count = len(exercises) == len(STRENGTH_EXERCISES)
+    print(f"\nTotal {len(STRENGTH_EXERCISES)} ejercicios: {'OK' if ok_count else 'FALLO'}")
 
     with SessionLocal() as db:
-        oly = db.query(Exercise).filter(Exercise.name == "Oly - Clean").first()
+        oly = db.query(Exercise).filter(Exercise.name == oly_name).first()
         athlete = db.query(Athlete).first()
         if not athlete:
             print("Sin atletas en DB")
             return
 
     weight, reps = 70.0, 3
-    brzycki_rm = round(compute_estimated_rm(weight, reps, oly), 2)
-    epley_wrong = round(weight * (1 + reps * 0.033), 2)
+    epley_rm = round(compute_estimated_rm(weight, reps, oly), 2)
+    brzycki_legacy = round(weight / (1.0278 - 0.0278 * reps), 2)
 
     payload = {
         "athlete_id": athlete.id,
@@ -70,15 +71,16 @@ def main() -> None:
     log_id = created["id"]
     summary = client.get(f"/logs/{log_id}/summary", headers=headers).json()
 
-    table = build_percentage_table(brzycki_rm, exercise=oly)
+    table = build_percentage_table(epley_rm, exercise=oly)
     row_925 = next(r for r in table if r["percentage"] == 92.5)
 
-    print(f"\n=== POST /logs — Oly - Clean {weight}×{reps} ===")
+    print(f"\n=== POST /logs — {oly_name} {weight}×{reps} ===")
     print(f"  formula_type (DB): {oly.formula_type}")
-    print(f"  RM Brzycki esperado: {brzycki_rm}")
-    print(f"  RM si fuera Epley 0.033 (no debe coincidir): {epley_wrong}")
+    print(f"  coef esperado (provisional): {EPLEY_OLY_DLO_COEFFICIENT}")
+    print(f"  RM Epley esperado: {epley_rm}")
     print(f"  RM API: {round(float(created.get('estimated_rm')), 2)}")
-    print(f"  Brzycki OK: {abs(float(created['estimated_rm']) - brzycki_rm) < 0.02}")
+    print(f"  Epley OK: {abs(float(created['estimated_rm']) - epley_rm) < 0.02}")
+    print(f"  (Brzycki legacy ref. 100×3 sería ~{brzycki_legacy} — no debe usarse)")
 
     print(f"\n=== GET /logs/{log_id}/summary — tabla % ===")
     print(f"  percentage_curve: {summary.get('percentage_curve')}")
@@ -95,7 +97,7 @@ def main() -> None:
                 "exercise_count": len(exercises),
                 "oly_clean_post": {
                     "estimated_rm": round(float(created["estimated_rm"]), 2),
-                    "brzycki_expected": brzycki_rm,
+                    "epley_expected": epley_rm,
                 },
                 "summary_curve": summary.get("percentage_curve"),
                 "row_92_5": api_row,

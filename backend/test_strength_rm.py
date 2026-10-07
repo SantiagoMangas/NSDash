@@ -31,3 +31,12 @@ class TestComputeEstimatedRm:
         ex = _exercise("brzycki", 0.03)
         with pytest.raises(ValueError):
             compute_estimated_rm(100.0, 40, ex)
+
+    def test_epley_oly_dlo_provisional_coefficient(self):
+        ex = _exercise("epley", 0.033)
+        assert compute_estimated_rm(100.0, 5, ex) == 116.5
+
+    def test_epley_hips_thrust_coefficient(self):
+        ex = _exercise("epley", 0.024)
+        # 80 x 8 -> 80 * (1 + 8*0.024) = 95.36
+        assert compute_estimated_rm(80.0, 8, ex) == pytest.approx(95.36)

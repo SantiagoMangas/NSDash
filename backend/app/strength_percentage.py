@@ -52,32 +52,27 @@ PERCENTAGE_CURVES: dict[PercentageCurveKey, list[tuple[float, int]]] = {
     ],
 }
 
-# Mapeo por nombre de ejercicio → curva (3 tablas %RM independientes).
+# Mapeo por nombre de ejercicio → curva (nombres alineados al Excel RM para app).
 EXERCISE_PERCENTAGE_CURVE_BY_NAME: dict[str, PercentageCurveKey] = {
-    # Sentadilla
-    "Sentadilla frontal": "sentadilla",
-    "Sentadilla Back": "sentadilla",
-    "Sentadilla al Cajon": "sentadilla",
-    "Thruster - Br": "sentadilla",
-    "Oly - Clean": "sentadilla",
-    "DLO - Hang Sq Clean": "sentadilla",
-    "DLO - Hang Power Clean": "sentadilla",
-    # Peso muerto
-    "Peso muerto": "peso_muerto",
-    "Peso muerto rumano": "peso_muerto",
+    "Sentadilla - Front Squat": "sentadilla",
+    "Sentadilla - Box Squat": "sentadilla",
+    "Sentadilla - Back Squat": "sentadilla",
+    "Oly - Clean - Cargada": "sentadilla",
+    "DLO - Hang Sq Clean - Cargada de Colgado a Profundo": "sentadilla",
+    "DLO - Hang Power Clean - Cargada de Colgado": "sentadilla",
     "Peso muerto - Sumo": "peso_muerto",
+    "Peso muerto - Rumano": "peso_muerto",
     "Peso muerto - Convencional": "peso_muerto",
-    "Oly - Clean and Jerk": "peso_muerto",
-    "Hips Thrust": "peso_muerto",
-    # Banco plano (press horizontal / derivados Oly listados por Nico)
+    "Oly - Clean & Jerk - Envión": "peso_muerto",
+    "Hips Thrust - Br": "peso_muerto",
     "Press Plano - Br": "banco_plano",
     "Push Press - Br": "banco_plano",
-    "Oly - Split Jerk": "banco_plano",
-    "Oly - Snatch": "banco_plano",
-    "Oly - Power Jerk": "banco_plano",
-    "DLO - Hang Sq Snatch": "banco_plano",
-    "DLO - Hang Power Snatch": "banco_plano",
-    "Press Militar - Br": "banco_plano",
+    "Press Militar - Estricto": "banco_plano",
+    "Oly - Split Jerk - 2do tiempo de tijera": "banco_plano",
+    "Oly - Snatch - Arranque": "banco_plano",
+    "Oly - Power Jerk - 2do tiempo de potencia": "banco_plano",
+    "DLO - Hang Sq Snatch - Arranque de Colgado a Prufundo": "banco_plano",
+    "DLO - Hang Power Snatch - Arranque de Colgado": "banco_plano",
 }
 
 
@@ -143,7 +138,7 @@ def migrate_legacy_removed_percentage_curves(db: Session) -> None:
         exercise.percentage_curve = "banco_plano"
     for exercise in db.query(Exercise).filter(Exercise.percentage_curve == "hips_thrust").all():
         exercise.percentage_curve = "peso_muerto"
-    for exercise in db.query(Exercise).filter(Exercise.name == "Hips Thrust").all():
+    for exercise in db.query(Exercise).filter(Exercise.name == "Hips Thrust - Br").all():
         exercise.percentage_curve = "peso_muerto"
     db.commit()
 
