@@ -22,11 +22,18 @@ from .panel_helpers import (
 )
 from .session_calculators import hiit_continuo, hiit_corto, hiit_largo, mas_training, rsa, tempo_run
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
+from .sqlite_startup_backup import try_backup_sqlite_before_migrations
 from .demo_seed import seed_showcase_data
 from .strength_percentage import (
     apply_exercise_percentage_curves,
     build_percentage_table,
     migrate_exercise_percentage_curve_column,
+)
+from .strength_log_kinds import (
+    LOG_KIND_PULL_UP,
+    LOG_KIND_RM_ESTIMATED,
+    PULL_UP_MODALITIES,
+    resolve_log_kind_for_exercise_name,
 )
 from .strength_rm import (
     DEFAULT_RM_COEFFICIENT,
@@ -103,6 +110,11 @@ STRENGTH_EXERCISES = [
     "Peso muerto - Rumano",
     "Peso muerto - Convencional",
     "Hips Thrust - Br",
+    "Tracción Horizontal - Remo a 90°",
+    "Traccion Vertical - Dominadas Agarre Neutro",
+    "Traccion Vertical - Dominada Palmar",
+    "Traccion Vertical - Domianda Prona",
+    "Traccion Vertical - Dominada Prona Abierta",
     "Oly - Split Jerk - 2do tiempo de tijera",
     "Oly - Snatch - Arranque",
     "Oly - Power Jerk - 2do tiempo de potencia",
@@ -199,6 +211,33 @@ def migrate_speed_test_columns() -> None:
                 )
 
 
+def migrate_exercise_log_kind_column() -> None:
+    existing_columns = {column["name"] for column in inspect(engine).get_columns("exercises")}
+    with engine.begin() as connection:
+        if "log_kind" not in existing_columns:
+            connection.execute(
+                text(
+                    f"ALTER TABLE exercises ADD COLUMN log_kind VARCHAR(32) "
+                    f"DEFAULT '{LOG_KIND_RM_ESTIMATED}'"
+                )
+            )
+
+
+def migrate_training_log_pull_up_modality_column() -> None:
+    existing_columns = {column["name"] for column in inspect(engine).get_columns("training_logs")}
+    with engine.begin() as connection:
+        if "pull_up_modality" not in existing_columns:
+            connection.execute(
+                text("ALTER TABLE training_logs ADD COLUMN pull_up_modality VARCHAR(20)")
+            )
+
+
+def apply_exercise_log_kinds(db: Session) -> None:
+    for exercise in db.query(models.Exercise).all():
+        exercise.log_kind = resolve_log_kind_for_exercise_name(exercise.name)
+    db.commit()
+
+
 def migrate_strength_exercises(db: Session) -> None:
     changed = False
     for old_name, new_name in STRENGTH_EXERCISE_RENAMES.items():
@@ -252,12 +291,15 @@ DEFAULT_ADMIN_PASSWORD = "1234"
 @app.on_event("startup")
 def on_startup() -> None:
     log_db_startup_info()
+    try_backup_sqlite_before_migrations()
     Base.metadata.create_all(bind=engine)
     migrate_athlete_profile_columns()
     migrate_athlete_panel_columns()
     migrate_speed_test_columns()
     migrate_exercise_rm_columns()
     migrate_exercise_percentage_curve_column()
+    migrate_exercise_log_kind_column()
+    migrate_training_log_pull_up_modality_column()
     with SessionLocal() as db:
         if db.query(models.User).count() == 0:
             db.add(
@@ -269,6 +311,7 @@ def on_startup() -> None:
             )
             db.commit()
         migrate_strength_exercises(db)
+        apply_exercise_log_kinds(db)
         apply_exercise_rm_profiles(db)
         apply_exercise_percentage_curves(db)
         recalculate_all_training_logs_rm(db)
@@ -796,7 +839,7 @@ def exercise_allows_patch(exercise: models.Exercise) -> bool:
     """Whether PATCH /exercises/{id} may modify this row (when implemented).
 
     Only exercises created via POST /exercises (custom names) are editable.
-    The 21 seed catalog entries in STRENGTH_EXERCISES must never be patched.
+    The 24 seed catalog entries in STRENGTH_EXERCISES must never be patched.
     """
     return exercise.name not in _CATALOG_SEED_NAMES
 
@@ -826,6 +869,7 @@ def create_exercise(
         formula_type=payload.formula_type,
         rm_coefficient=rm_coefficient,
         percentage_curve=payload.percentage_curve,
+        log_kind=resolve_log_kind_for_exercise_name(payload.name),
     )
     db.add(exercise)
     db.commit()
@@ -850,6 +894,41 @@ def get_exercise(
     return exercise
 
 
+def _resolve_training_log_values(
+    exercise: models.Exercise,
+    weight: float,
+    reps: int,
+    pull_up_modality: str | None,
+) -> tuple[float, int, float | None, str | None]:
+    log_kind = resolve_log_kind_for_exercise_name(exercise.name)
+    if log_kind == LOG_KIND_PULL_UP:
+        if pull_up_modality not in PULL_UP_MODALITIES:
+            raise HTTPException(
+                status_code=400,
+                detail="Elegí modalidad de dominadas: banda, peso corporal o lastre.",
+            )
+        if pull_up_modality in ("bodyweight", "band"):
+            weight_val = 0.0
+        elif not math.isfinite(weight) or weight <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Ingresá la carga en kg (mayor a 0).",
+            )
+        else:
+            weight_val = float(weight)
+        return weight_val, reps, None, pull_up_modality
+
+    if pull_up_modality is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="La modalidad de dominadas no aplica a este ejercicio.",
+        )
+    if not math.isfinite(weight) or weight <= 0:
+        raise HTTPException(status_code=400, detail="El peso debe ser mayor a 0")
+    estimated_rm = compute_estimated_rm(weight, reps, exercise)
+    return float(weight), reps, estimated_rm, None
+
+
 @app.post("/logs", response_model=schemas.TrainingLogResponse)
 def create_log(
     log: schemas.TrainingLogCreate, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
@@ -861,14 +940,20 @@ def create_log(
     exercise = get_exercise_for_log(db, log.exercise_id)
     if exercise is None:
         raise HTTPException(status_code=404, detail="Exercise not found")
-    estimated_rm = compute_estimated_rm(log.weight, log.reps, exercise)
+    weight, reps, estimated_rm, pull_up_modality = _resolve_training_log_values(
+        exercise,
+        log.weight,
+        log.reps,
+        log.pull_up_modality,
+    )
     db_log = models.TrainingLog(
         athlete_id=log.athlete_id,
         exercise_id=log.exercise_id,
         date=log.date,
-        weight=log.weight,
-        reps=log.reps,
+        weight=weight,
+        reps=reps,
         estimated_rm=estimated_rm,
+        pull_up_modality=pull_up_modality,
     )
     db.add(db_log)
     db.commit()
@@ -899,11 +984,24 @@ def update_log(
     for field, value in update_data.items():
         setattr(db_log, field, value)
 
-    if "weight" in update_data or "reps" in update_data:
+    if (
+        "weight" in update_data
+        or "reps" in update_data
+        or "pull_up_modality" in update_data
+    ):
         exercise = get_exercise_for_log(db, db_log.exercise_id)
         if exercise is None:
             raise HTTPException(status_code=404, detail="Exercise not found")
-        db_log.estimated_rm = compute_estimated_rm(db_log.weight, db_log.reps, exercise)
+        weight, reps, estimated_rm, pull_up_modality = _resolve_training_log_values(
+            exercise,
+            db_log.weight,
+            db_log.reps,
+            db_log.pull_up_modality,
+        )
+        db_log.weight = weight
+        db_log.reps = reps
+        db_log.estimated_rm = estimated_rm
+        db_log.pull_up_modality = pull_up_modality
 
     db.commit()
     db.refresh(db_log)
@@ -935,6 +1033,8 @@ def get_log_percentages(
         raise HTTPException(status_code=403, detail="Access denied")
 
     exercise = db.query(models.Exercise).filter(models.Exercise.id == log.exercise_id).first()
+    if log.estimated_rm is None:
+        raise HTTPException(status_code=404, detail="Este registro no tiene tabla de %RM.")
     return build_percentage_table(float(log.estimated_rm), exercise=exercise)
 
 
@@ -961,12 +1061,18 @@ def get_athlete_progress(
 
     return {
         "exercise": exercise_name,
+        "log_kind": exercise.log_kind if exercise else LOG_KIND_RM_ESTIMATED,
         "history": [
             {
                 "date": log.date,
-                "estimated_rm": round(float(log.estimated_rm), 2),
+                "estimated_rm": (
+                    round(float(log.estimated_rm), 2)
+                    if log.estimated_rm is not None
+                    else None
+                ),
                 "weight": log.weight,
                 "reps": log.reps,
+                "pull_up_modality": log.pull_up_modality,
             }
             for log in logs
         ],
@@ -1000,7 +1106,13 @@ def get_exercise_percentage_table_best_rm(
     if not logs:
         raise HTTPException(status_code=404, detail="No training logs for this exercise")
 
-    best_rm = max(float(log.estimated_rm) for log in logs)
+    rm_values = [float(log.estimated_rm) for log in logs if log.estimated_rm is not None]
+    if not rm_values:
+        raise HTTPException(
+            status_code=404,
+            detail="No hay RM estimado para este ejercicio.",
+        )
+    best_rm = max(rm_values)
     percentages = build_percentage_table(best_rm, exercise=exercise)
 
     return {
@@ -1035,6 +1147,9 @@ def get_log_summary(log_id: int, db: Session = Depends(get_db), current_user: in
     exercise = db.query(models.Exercise).filter(models.Exercise.id == log.exercise_id).first()
     exercise_name = exercise.name if exercise else "Unknown Exercise"
 
+    if log.estimated_rm is None:
+        raise HTTPException(status_code=404, detail="Este registro no tiene tabla de %RM.")
+
     percentages = build_percentage_table(float(log.estimated_rm), exercise=exercise)
 
     return {
@@ -1043,6 +1158,7 @@ def get_log_summary(log_id: int, db: Session = Depends(get_db), current_user: in
         "reps": log.reps,
         "date": log.date,
         "estimated_rm": round(float(log.estimated_rm), 2),
+        "pull_up_modality": log.pull_up_modality,
         "percentage_curve": exercise.percentage_curve if exercise else None,
         "percentages": [
             {

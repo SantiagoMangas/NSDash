@@ -10,6 +10,11 @@ from sqlalchemy.orm import Session
 
 from .db import engine
 from .models import Exercise, TrainingLog
+from .strength_log_kinds import (
+    HORIZONTAL_TRACTION_EXERCISE_NAME,
+    HORIZONTAL_TRACTION_RM_COEFFICIENT,
+    LOG_KIND_PULL_UP,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +49,7 @@ EXERCISE_RM_PROFILES: dict[str, tuple[str, float]] = {
     "Push Press - Br": ("epley", 0.020),
     "Peso muerto - Rumano": ("epley", 0.018),
     "Hips Thrust - Br": ("epley", 0.024),
+    HORIZONTAL_TRACTION_EXERCISE_NAME: ("epley", HORIZONTAL_TRACTION_RM_COEFFICIENT),
     "Peso muerto - Sumo": ("epley", 0.018),
     "Peso muerto - Convencional": ("epley", 0.018),
     "Oly - Clean - Cargada": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
@@ -149,6 +155,11 @@ def recalculate_all_training_logs_rm(db: Session) -> None:
     oly_dlo_updated = 0
 
     for log, exercise in logs:
+        if getattr(exercise, "log_kind", None) == LOG_KIND_PULL_UP:
+            if log.estimated_rm is not None:
+                log.estimated_rm = None
+                updated += 1
+            continue
         old_rm = log.estimated_rm
         new_rm = round(compute_estimated_rm(log.weight, log.reps, exercise), 2)
         if old_rm is None or abs(float(old_rm) - new_rm) > 1e-6:

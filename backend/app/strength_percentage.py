@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .db import engine
 from .models import Exercise
+from .strength_log_kinds import HORIZONTAL_TRACTION_EXERCISE_NAME
 
 PercentageCurveKey = Literal[
     "sentadilla",
@@ -65,6 +66,7 @@ EXERCISE_PERCENTAGE_CURVE_BY_NAME: dict[str, PercentageCurveKey] = {
     "Peso muerto - Convencional": "peso_muerto",
     "Oly - Clean & Jerk - Envión": "peso_muerto",
     "Hips Thrust - Br": "peso_muerto",
+    HORIZONTAL_TRACTION_EXERCISE_NAME: "peso_muerto",
     "Press Plano - Br": "banco_plano",
     "Push Press - Br": "banco_plano",
     "Press Militar - Estricto": "banco_plano",

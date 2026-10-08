@@ -55,6 +55,14 @@ import {
   hasBodyWeightForRelative,
   relativeStrength,
 } from "@/lib/strength/relativeStrength";
+import {
+  formatPullUpLogLine,
+  isPullUpLogKind,
+  PULL_UP_MODALITY_OPTIONS,
+  type PullUpModality,
+  pullUpLoadFieldLabel,
+  pullUpModalityRequiresLoad,
+} from "@/lib/strength/pullUpLog";
 import { parseApiError } from "@/lib/utils";
 
 type Props = {
@@ -96,6 +104,7 @@ export function StrengthModule({
   const [date, setDate] = useState(getTodayDate());
   const [weight, setWeight] = useState("");
   const [reps, setReps] = useState("");
+  const [pullUpModality, setPullUpModality] = useState<PullUpModality>("bodyweight");
   const [isSavingLog, setIsSavingLog] = useState(false);
   const [saveLogError, setSaveLogError] = useState<string | null>(null);
   const [editingLog, setEditingLog] = useState<StrengthLogEditData | null>(null);
@@ -108,6 +117,13 @@ export function StrengthModule({
 
   const weightInputRef = useRef<HTMLInputElement | null>(null);
   const selectedExercise = exercises.find((e) => e.id === selectedExerciseId) ?? null;
+  const isPullUpExercise = isPullUpLogKind(selectedExercise?.log_kind);
+
+  useEffect(() => {
+    setPullUpModality("bodyweight");
+    setWeight("");
+    setReps("");
+  }, [selectedExerciseId, isPullUpExercise]);
   useEffect(() => {
     prefsReadyRef.current = true;
   }, []);
@@ -170,16 +186,26 @@ export function StrengthModule({
       ]);
       setIsLoadingLogs(false);
 
-      if (!progress) {
-        setLogs([]);
-        return;
-      }
-
       const candidateLogs = allLogs
         .filter(
           (l) => l.athlete_id === athleteId && l.exercise_id === selectedExerciseId,
         )
         .sort((a, b) => a.date.localeCompare(b.date));
+
+      const logsFromCandidates = (): ProgressListItem[] =>
+        candidateLogs.map((l) => ({
+          id: l.id,
+          date: l.date,
+          weight: l.weight,
+          reps: l.reps,
+          estimated_rm: l.estimated_rm,
+          pull_up_modality: l.pull_up_modality ?? null,
+        }));
+
+      if (!progress) {
+        setLogs(logsFromCandidates().sort((a, b) => b.date.localeCompare(a.date)));
+        return;
+      }
 
       const usedIds = new Set<number>();
       const mergedLogs: ProgressListItem[] = progress.history
@@ -189,7 +215,10 @@ export function StrengthModule({
               !usedIds.has(l.id) &&
               l.date === item.date &&
               l.weight === item.weight &&
-              l.reps === item.reps,
+              l.reps === item.reps &&
+              (item.pull_up_modality == null ||
+                l.pull_up_modality == null ||
+                l.pull_up_modality === item.pull_up_modality),
           );
           if (!match) return null;
           usedIds.add(match.id);
@@ -199,11 +228,15 @@ export function StrengthModule({
             weight: item.weight,
             reps: item.reps,
             estimated_rm: item.estimated_rm,
+            pull_up_modality: item.pull_up_modality ?? match.pull_up_modality,
           };
         })
         .filter((l): l is ProgressListItem => l !== null);
 
-      setLogs(mergedLogs.sort((a, b) => b.date.localeCompare(a.date)));
+      const resolved =
+        mergedLogs.length > 0 ? mergedLogs : logsFromCandidates();
+
+      setLogs(resolved.sort((a, b) => b.date.localeCompare(a.date)));
     };
     void loadLogs();
   }, [athleteId, selectedExerciseId, logsReloadToken]);
@@ -237,7 +270,8 @@ export function StrengthModule({
           (a, b) =>
             parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime(),
         )
-        .map((l) => ({ date: l.date, estimated_rm: l.estimated_rm })),
+        .filter((l) => l.estimated_rm != null)
+        .map((l) => ({ date: l.date, estimated_rm: l.estimated_rm as number })),
     [filteredLogs],
   );
 
@@ -245,11 +279,14 @@ export function StrengthModule({
     const sourceLogs =
       filteredLogs.length > 0 ? filteredLogs : logs;
     const totalEvaluations = sourceLogs.length;
-    const totalRm = sourceLogs.reduce((sum, item) => sum + item.estimated_rm, 0);
+    const rmLogs = sourceLogs.filter((item) => item.estimated_rm != null);
+    const totalRm = rmLogs.reduce((sum, item) => sum + (item.estimated_rm ?? 0), 0);
     const bestEstimatedRM =
-      totalEvaluations > 0 ? Math.max(...sourceLogs.map((item) => item.estimated_rm)) : 0;
+      rmLogs.length > 0
+        ? Math.max(...rmLogs.map((item) => item.estimated_rm as number))
+        : 0;
     const averageEstimatedRM =
-      totalEvaluations > 0 ? Math.round((totalRm / totalEvaluations) * 10) / 10 : 0;
+      rmLogs.length > 0 ? Math.round((totalRm / rmLogs.length) * 10) / 10 : 0;
     const bestRmRelative = relativeStrength(bestEstimatedRM, athleteBodyWeightKg);
     const avgRmRelative = relativeStrength(averageEstimatedRM, athleteBodyWeightKg);
 
@@ -308,16 +345,20 @@ export function StrengthModule({
     event.preventDefault();
     if (athleteId === null || selectedExerciseId === null) return;
 
-    const weightVal = Number(weight);
     const repsVal = Number(reps);
+    const needsLoad =
+      isPullUpExercise && pullUpModalityRequiresLoad(pullUpModality);
+    const weightVal = needsLoad ? Number(weight) : isPullUpExercise ? 0 : Number(weight);
 
-    if (!Number.isFinite(weightVal)) {
-      setSaveLogError("Ingresá un peso válido (número mayor a 0).");
-      return;
-    }
-    if (weightVal <= 0) {
-      setSaveLogError("El peso debe ser mayor a 0 kg.");
-      return;
+    if (needsLoad || !isPullUpExercise) {
+      if (!Number.isFinite(weightVal)) {
+        setSaveLogError("Ingresá una carga válida (número mayor a 0).");
+        return;
+      }
+      if (weightVal <= 0) {
+        setSaveLogError("La carga debe ser mayor a 0 kg.");
+        return;
+      }
     }
     if (!Number.isFinite(repsVal)) {
       setSaveLogError("Ingresá repeticiones válidas (número entero mayor a 0).");
@@ -331,7 +372,14 @@ export function StrengthModule({
     setIsSavingLog(true);
     setSaveLogError(null);
     try {
-      await createTrainingLog(athleteId, selectedExerciseId, date, weightVal, repsVal);
+      await createTrainingLog(
+        athleteId,
+        selectedExerciseId,
+        date,
+        weightVal,
+        repsVal,
+        isPullUpExercise ? pullUpModality : undefined,
+      );
       setLogsReloadToken((p) => p + 1);
       setDate(getTodayDate());
       setWeight("");
@@ -356,6 +404,8 @@ export function StrengthModule({
       date: log.date,
       weight: log.weight,
       reps: log.reps,
+      pull_up_modality: log.pull_up_modality,
+      isPullUp: isPullUpExercise,
     });
     setIsLogEditModalOpen(true);
   };
@@ -496,19 +546,43 @@ export function StrengthModule({
                 wrapperClassName="w-36 shrink-0"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
               />
-              <div className="shrink-0">
-                <label htmlFor="log-weight" className="block text-xs text-slate-500 mb-1">Peso (kg)</label>
-                <input
-                  id="log-weight"
-                  type="number"
-                  value={weight}
-                  onChange={(e) => setWeight(e.target.value)}
-                  required
-                  ref={weightInputRef}
-                  className="w-28 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-                />
-                <DateFormatHintLine visible={false} />
-              </div>
+              {isPullUpExercise ? (
+                <div className="shrink-0 min-w-[12rem]">
+                  <label htmlFor="pull-up-modality" className="block text-xs text-slate-500 mb-1">
+                    Modalidad
+                  </label>
+                  <select
+                    id="pull-up-modality"
+                    value={pullUpModality}
+                    onChange={(e) => setPullUpModality(e.target.value as PullUpModality)}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition bg-white"
+                  >
+                    {PULL_UP_MODALITY_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <DateFormatHintLine visible={false} />
+                </div>
+              ) : null}
+              {(!isPullUpExercise || pullUpModalityRequiresLoad(pullUpModality)) && (
+                <div className="shrink-0">
+                  <label htmlFor="log-weight" className="block text-xs text-slate-500 mb-1">
+                    {isPullUpExercise ? pullUpLoadFieldLabel(pullUpModality) : "Peso (kg)"}
+                  </label>
+                  <input
+                    id="log-weight"
+                    type="number"
+                    value={weight}
+                    onChange={(e) => setWeight(e.target.value)}
+                    required
+                    ref={weightInputRef}
+                    className="w-28 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+                  />
+                  <DateFormatHintLine visible={false} />
+                </div>
+              )}
               <div className="shrink-0">
                 <label htmlFor="log-reps" className="block text-xs text-slate-500 mb-1">Repeticiones</label>
                 <input
@@ -557,6 +631,7 @@ export function StrengthModule({
             </section>
           ) : (
             <>
+              {!isPullUpExercise ? (
               <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
                 <h2 className="text-base font-semibold text-slate-700 mb-1">Resumen de rendimiento</h2>
                 <p className="text-xs text-slate-400 mb-4">
@@ -627,14 +702,16 @@ export function StrengthModule({
                   );
                 })()}
               </section>
+              ) : null}
 
               <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                   <div>
                     <h2 className="text-base font-semibold text-slate-700">Historial de evaluaciones</h2>
                     <p className="text-sm text-slate-500 max-w-xl">
-                      Agregados del rango del gráfico. Tocá una evaluación para ver la tabla %RM
-                      calculada sobre el RM de esa sesión.
+                      {isPullUpExercise
+                        ? "Registros del rango seleccionado (sin estimación de RM)."
+                        : "Agregados del rango del gráfico. Tocá una evaluación para ver la tabla %RM calculada sobre el RM de esa sesión."}
                     </p>
                   </div>
                   <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
@@ -642,7 +719,13 @@ export function StrengthModule({
                     {DATE_RANGE_OPTIONS.find((opt) => opt.value === dateRange)?.label}
                   </span>
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 mb-6">
+                <div
+                  className={`grid gap-4 mb-6 ${
+                    isPullUpExercise
+                      ? "sm:grid-cols-1 max-w-xs"
+                      : "sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5"
+                  }`}
+                >
                   <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
                     <p className="text-xs text-slate-400 uppercase tracking-wide">
                       Cantidad de evaluaciones
@@ -651,6 +734,8 @@ export function StrengthModule({
                       {evaluationStats.totalEvaluations}
                     </p>
                   </div>
+                  {!isPullUpExercise ? (
+                    <>
                   <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
                     <p className="text-xs text-slate-400 uppercase tracking-wide">RM promedio</p>
                     <p className="mt-3 text-3xl font-semibold text-indigo-600">
@@ -688,6 +773,8 @@ export function StrengthModule({
                       {formatRelativeStrength(evaluationStats.bestRmRelative)}
                     </p>
                   </div>
+                    </>
+                  ) : null}
                 </div>
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <h3 className="text-sm font-semibold text-slate-600">Listado</h3>
@@ -695,9 +782,11 @@ export function StrengthModule({
                     {filteredLogs.length} de {logs.length} en el rango
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 mb-3">
-                  Tocá una evaluación para ver la tabla de %RM.
-                </p>
+                {!isPullUpExercise ? (
+                  <p className="text-xs text-slate-400 mb-3">
+                    Tocá una evaluación para ver la tabla de %RM.
+                  </p>
+                ) : null}
                 {filteredLogs.length === 0 ? (
                   <p className="text-sm text-slate-400 text-center py-6">Sin evaluaciones en este rango</p>
                 ) : (
@@ -707,6 +796,12 @@ export function StrengthModule({
                       const rmRel = relativeStrength(log.estimated_rm, athleteBodyWeightKg);
                       const isExpanded = expandedLogId === log.id;
                       const showSummary = isExpanded && expandedLogSummary;
+                      const logLine = isPullUpExercise
+                        ? formatPullUpLogLine(log.pull_up_modality, log.weight, log.reps)
+                        : `${log.weight} kg × ${log.reps} rep${log.reps !== 1 ? "s" : ""}`;
+                      const rowMainClass = `flex-1 flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-left min-w-0 ${
+                        isPullUpExercise ? "bg-white" : isExpanded ? "bg-indigo-50" : "bg-white hover:bg-indigo-50/60"
+                      }`;
                       return (
                         <li
                           key={log.id}
@@ -717,24 +812,28 @@ export function StrengthModule({
                           }`}
                         >
                           <div className="flex items-stretch gap-0">
+                            {isPullUpExercise ? (
+                              <div className={rowMainClass}>
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 min-w-0">
+                                  <span className="text-xs text-slate-400 w-20 shrink-0">
+                                    {formatDisplayDate(log.date)}
+                                  </span>
+                                  <span className="text-sm text-slate-700 font-medium">{logLine}</span>
+                                </div>
+                              </div>
+                            ) : (
                             <button
                               type="button"
                               onClick={() => handleToggleLogTable(log.id)}
                               aria-expanded={isExpanded}
                               title={isExpanded ? "Ocultar tabla de %RM" : "Ver tabla de %RM"}
-                              className={`flex-1 flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-left cursor-pointer transition-colors min-w-0 ${
-                                isExpanded
-                                  ? "bg-indigo-50"
-                                  : "bg-white hover:bg-indigo-50/60"
-                              }`}
+                              className={`${rowMainClass} cursor-pointer transition-colors`}
                             >
                               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 min-w-0">
                                 <span className="text-xs text-slate-400 w-20 shrink-0">
                                   {formatDisplayDate(log.date)}
                                 </span>
-                                <span className="text-sm text-slate-700 font-medium">
-                                  {log.weight} kg × {log.reps} rep{log.reps !== 1 ? "s" : ""}
-                                </span>
+                                <span className="text-sm text-slate-700 font-medium">{logLine}</span>
                                 <span className="text-xs text-slate-500">
                                   Rel. carga {formatRelativeStrength(loadRel)}
                                 </span>
@@ -748,6 +847,7 @@ export function StrengthModule({
                                 </span>
                               </div>
                             </button>
+                            )}
                             <div className="flex shrink-0 gap-1 px-2 py-2 border-l border-slate-100 bg-slate-50/80 items-center">
                               <button
                                 type="button"
@@ -772,7 +872,7 @@ export function StrengthModule({
                               </button>
                             </div>
                           </div>
-                          {isExpanded && (
+                          {isExpanded && !isPullUpExercise && (
                             <div className="px-3 pb-4 pt-2 border-t border-indigo-100 bg-white">
                               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                                 <div className="flex flex-wrap items-center gap-2">
@@ -907,6 +1007,7 @@ export function StrengthModule({
                 ) : null}
               </section>
 
+              {!isPullUpExercise ? (
               <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
                 <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                   <h2 className="text-base font-semibold text-slate-700">Progresión RM</h2>
@@ -961,6 +1062,7 @@ export function StrengthModule({
                   </ResponsiveContainer>
                 )}
               </section>
+              ) : null}
 
             </>
           )}

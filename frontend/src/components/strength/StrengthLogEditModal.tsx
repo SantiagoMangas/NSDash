@@ -3,6 +3,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { DateInputWithDisplay } from "@/components/ui/DateInputWithDisplay";
 import { updateTrainingLog } from "@/lib/api/strength";
+import {
+  PULL_UP_MODALITY_OPTIONS,
+  type PullUpModality,
+  pullUpLoadFieldLabel,
+  pullUpModalityRequiresLoad,
+} from "@/lib/strength/pullUpLog";
 import { parseApiError } from "@/lib/utils";
 
 export type StrengthLogEditData = {
@@ -10,6 +16,8 @@ export type StrengthLogEditData = {
   date: string;
   weight: number;
   reps: number;
+  pull_up_modality?: string | null;
+  isPullUp?: boolean;
 };
 
 type Props = {
@@ -19,17 +27,26 @@ type Props = {
   onSaved: () => void;
 };
 
-function validateForm(date: string, weight: string, reps: string): string | null {
+function validateForm(
+  date: string,
+  weight: string,
+  reps: string,
+  isPullUp: boolean,
+  modality: PullUpModality,
+): string | null {
   if (!date.trim()) {
     return "Ingresá una fecha válida.";
   }
 
-  const weightVal = Number(weight.replace(",", "."));
-  if (!Number.isFinite(weightVal)) {
-    return "Ingresá un peso válido (número mayor a 0).";
-  }
-  if (weightVal <= 0) {
-    return "El peso debe ser mayor a 0 kg.";
+  const needsLoad = isPullUp && pullUpModalityRequiresLoad(modality);
+  if (needsLoad || !isPullUp) {
+    const weightVal = Number(weight.replace(",", "."));
+    if (!Number.isFinite(weightVal)) {
+      return "Ingresá una carga válida (número mayor a 0).";
+    }
+    if (weightVal <= 0) {
+      return "La carga debe ser mayor a 0 kg.";
+    }
   }
 
   const repsVal = Number(reps);
@@ -47,14 +64,23 @@ export function StrengthLogEditModal({ open, log, onClose, onSaved }: Props) {
   const [date, setDate] = useState("");
   const [weight, setWeight] = useState("");
   const [reps, setReps] = useState("");
+  const [pullUpModality, setPullUpModality] = useState<PullUpModality>("bodyweight");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const isPullUp = Boolean(log?.isPullUp);
 
   useEffect(() => {
     if (!open || !log) return;
     setDate(log.date);
-    setWeight(String(log.weight));
+    setWeight(log.weight > 0 ? String(log.weight) : "");
     setReps(String(log.reps));
+    const mod = log.pull_up_modality;
+    if (mod === "band" || mod === "bodyweight" || mod === "weighted") {
+      setPullUpModality(mod);
+    } else {
+      setPullUpModality("bodyweight");
+    }
     setError(null);
     setIsSaving(false);
   }, [open, log]);
@@ -65,13 +91,18 @@ export function StrengthLogEditModal({ open, log, onClose, onSaved }: Props) {
     event.preventDefault();
     setError(null);
 
-    const validationError = validateForm(date, weight, reps);
+    const validationError = validateForm(date, weight, reps, isPullUp, pullUpModality);
     if (validationError) {
       setError(validationError);
       return;
     }
 
-    const weightVal = Number(weight.replace(",", "."));
+    const needsLoad = isPullUp && pullUpModalityRequiresLoad(pullUpModality);
+    const weightVal = needsLoad
+      ? Number(weight.replace(",", "."))
+      : isPullUp
+        ? 0
+        : Number(weight.replace(",", "."));
     const repsVal = Number(reps);
 
     setIsSaving(true);
@@ -80,6 +111,7 @@ export function StrengthLogEditModal({ open, log, onClose, onSaved }: Props) {
         date,
         weight: weightVal,
         reps: repsVal,
+        ...(isPullUp ? { pull_up_modality: pullUpModality } : {}),
       });
       onSaved();
       onClose();
@@ -91,6 +123,8 @@ export function StrengthLogEditModal({ open, log, onClose, onSaved }: Props) {
       setIsSaving(false);
     }
   };
+
+  const showLoad = !isPullUp || pullUpModalityRequiresLoad(pullUpModality);
 
   return (
     <div
@@ -109,7 +143,9 @@ export function StrengthLogEditModal({ open, log, onClose, onSaved }: Props) {
             Editar registro de fuerza
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Modificá la fecha, el peso o las repeticiones del registro.
+            {isPullUp
+              ? "Modalidad, carga (si aplica) y repeticiones."
+              : "Modificá la fecha, el peso o las repeticiones del registro."}
           </p>
         </div>
 
@@ -123,20 +159,42 @@ export function StrengthLogEditModal({ open, log, onClose, onSaved }: Props) {
             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
           />
 
-          <div className="grid grid-cols-2 gap-4">
+          {isPullUp ? (
             <div>
-              <label htmlFor="edit-log-weight" className="block text-xs text-slate-500 mb-1">
-                Peso (kg)
+              <label htmlFor="edit-pull-up-modality" className="block text-xs text-slate-500 mb-1">
+                Modalidad
               </label>
-              <input
-                id="edit-log-weight"
-                type="number"
-                value={weight}
-                onChange={(event) => setWeight(event.target.value)}
-                required
+              <select
+                id="edit-pull-up-modality"
+                value={pullUpModality}
+                onChange={(e) => setPullUpModality(e.target.value as PullUpModality)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-              />
+              >
+                {PULL_UP_MODALITY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
+          ) : null}
+
+          <div className={`grid gap-4 ${showLoad ? "grid-cols-2" : "grid-cols-1"}`}>
+            {showLoad ? (
+              <div>
+                <label htmlFor="edit-log-weight" className="block text-xs text-slate-500 mb-1">
+                  {isPullUp ? pullUpLoadFieldLabel(pullUpModality) : "Peso (kg)"}
+                </label>
+                <input
+                  id="edit-log-weight"
+                  type="number"
+                  value={weight}
+                  onChange={(event) => setWeight(event.target.value)}
+                  required
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+                />
+              </div>
+            ) : null}
             <div>
               <label htmlFor="edit-log-reps" className="block text-xs text-slate-500 mb-1">
                 Repeticiones

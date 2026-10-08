@@ -6,6 +6,7 @@ export type Exercise = {
   formula_type: string;
   rm_coefficient: number;
   percentage_curve: string;
+  log_kind: string;
 };
 
 function parseOptionalNumber(value: unknown): number | null {
@@ -41,6 +42,8 @@ function parseExercise(item: unknown): Exercise | null {
       ? (parseOptionalNumber(record.rm_coefficient) as number)
       : 1 / 30,
     percentage_curve: hasMeta ? String(record.percentage_curve) : "sentadilla",
+    log_kind:
+      typeof record.log_kind === "string" ? String(record.log_kind) : "rm_estimated",
   };
 }
 
@@ -110,6 +113,7 @@ export async function createTrainingLog(
   date: string,
   weight: number,
   reps: number,
+  pullUpModality?: string,
 ): Promise<any> {
   return post("/logs", {
     athlete_id: athleteId,
@@ -117,6 +121,9 @@ export async function createTrainingLog(
     date,
     weight,
     reps,
+    ...(pullUpModality !== undefined
+      ? { pull_up_modality: pullUpModality }
+      : {}),
   });
 }
 
@@ -124,6 +131,7 @@ export type TrainingLogUpdatePayload = {
   date?: string;
   weight?: number;
   reps?: number;
+  pull_up_modality?: string;
 };
 
 export async function updateTrainingLog(

@@ -77,6 +77,7 @@ class Exercise(Base):
     rm_coefficient = Column(Float, nullable=False, default=1.0 / 30.0)
     formula_type = Column(String(20), nullable=False, default="epley")
     percentage_curve = Column(String(32), nullable=False, default="sentadilla")
+    log_kind = Column(String(32), nullable=False, default="rm_estimated")
 
 
 class TrainingLog(Base):
@@ -89,6 +90,7 @@ class TrainingLog(Base):
     weight = Column(Float, nullable=False)
     reps = Column(Integer, nullable=False)
     estimated_rm = Column(Float, nullable=True)
+    pull_up_modality = Column(String(20), nullable=True)
 
 
 class SprintLog(Base):

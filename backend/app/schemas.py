@@ -265,6 +265,7 @@ class ExerciseResponse(BaseModel):
     formula_type: str
     rm_coefficient: float
     percentage_curve: str
+    log_kind: str = "rm_estimated"
 
     model_config = {"from_attributes": True}
 
@@ -326,20 +327,22 @@ class TrainingLogCreate(BaseModel):
     date: Date
     weight: float
     reps: int
+    pull_up_modality: Optional[str] = None
 
 
 class TrainingLogUpdate(BaseModel):
     date: Optional[Date] = None
     weight: Optional[float] = None
     reps: Optional[int] = None
+    pull_up_modality: Optional[str] = None
 
     @field_validator("weight")
     @classmethod
     def validate_weight(cls, value: Optional[float]) -> Optional[float]:
         if value is None:
             return value
-        if not math.isfinite(value) or value <= 0:
-            raise ValueError("El peso debe ser un número mayor a 0")
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("El peso debe ser un número mayor o igual a 0")
         return value
 
     @field_validator("reps")
@@ -360,6 +363,7 @@ class TrainingLogResponse(BaseModel):
     weight: float
     reps: int
     estimated_rm: Optional[float]
+    pull_up_modality: Optional[str] = None
 
 
 class SprintLogCreate(BaseModel):

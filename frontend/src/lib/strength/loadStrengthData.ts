@@ -12,7 +12,8 @@ export type RawLog = {
   date: string;
   weight: number;
   reps: number;
-  estimated_rm: number;
+  estimated_rm: number | null;
+  pull_up_modality?: string | null;
 };
 
 export type PercentageRow = {
@@ -42,11 +43,13 @@ export type BestRmPercentageTable = {
 
 export type ProgressResponse = {
   exercise: string;
+  log_kind?: string;
   history: Array<{
     date: string;
-    estimated_rm: number;
+    estimated_rm: number | null;
     weight: number;
     reps: number;
+    pull_up_modality?: string | null;
   }>;
 };
 
@@ -55,26 +58,40 @@ export type ProgressListItem = {
   date: string;
   weight: number;
   reps: number;
-  estimated_rm: number;
+  estimated_rm: number | null;
+  pull_up_modality?: string | null;
 };
 
 export async function loadAllLogs(): Promise<RawLog[]> {
   try {
     const data = await getAllLogs();
-    return Array.isArray(data)
-      ? data.filter(
-          (item): item is RawLog =>
-            item !== null &&
-            typeof item === "object" &&
-            typeof item.id === "number" &&
-            typeof item.athlete_id === "number" &&
-            typeof item.exercise_id === "number" &&
-            typeof item.date === "string" &&
-            typeof item.weight === "number" &&
-            typeof item.reps === "number" &&
-            typeof item.estimated_rm === "number",
-        )
-      : [];
+    if (!Array.isArray(data)) return [];
+    return data
+      .filter(
+        (item): item is Record<string, unknown> =>
+          item !== null && typeof item === "object",
+      )
+      .filter(
+        (item) =>
+          typeof item.id === "number" &&
+          typeof item.athlete_id === "number" &&
+          typeof item.exercise_id === "number" &&
+          typeof item.date === "string" &&
+          typeof item.weight === "number" &&
+          typeof item.reps === "number" &&
+          (typeof item.estimated_rm === "number" || item.estimated_rm === null),
+      )
+      .map((item) => ({
+        id: item.id as number,
+        athlete_id: item.athlete_id as number,
+        exercise_id: item.exercise_id as number,
+        date: item.date as string,
+        weight: item.weight as number,
+        reps: item.reps as number,
+        estimated_rm: item.estimated_rm as number | null,
+        pull_up_modality:
+          typeof item.pull_up_modality === "string" ? item.pull_up_modality : null,
+      }));
   } catch {
     return [];
   }
@@ -89,21 +106,32 @@ export async function loadProgress(
     if (!data || typeof data !== "object" || !Array.isArray(data.history)) return null;
     return {
       exercise: typeof data.exercise === "string" ? data.exercise : "",
+      log_kind: typeof data.log_kind === "string" ? data.log_kind : undefined,
       history: data.history
         .filter(
-          (item: unknown): item is { date: string; estimated_rm: number; weight: number; reps: number } =>
+          (
+            item: unknown,
+          ): item is {
+            date: string;
+            estimated_rm: number | null;
+            weight: number;
+            reps: number;
+            pull_up_modality?: string | null;
+          } =>
             item !== null &&
             typeof item === "object" &&
             typeof (item as { date?: unknown }).date === "string" &&
-            typeof (item as { estimated_rm?: unknown }).estimated_rm === "number" &&
             typeof (item as { weight?: unknown }).weight === "number" &&
-            typeof (item as { reps?: unknown }).reps === "number",
+            typeof (item as { reps?: unknown }).reps === "number" &&
+            ((item as { estimated_rm?: unknown }).estimated_rm === null ||
+              typeof (item as { estimated_rm?: unknown }).estimated_rm === "number"),
         )
-        .map((item: { date: string; estimated_rm: number; weight: number; reps: number }) => ({
+        .map((item) => ({
           date: item.date,
           estimated_rm: item.estimated_rm,
           weight: item.weight,
           reps: item.reps,
+          pull_up_modality: item.pull_up_modality ?? null,
         })),
     };
   } catch {
