@@ -2,9 +2,9 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createVamTest, getYoyoLevels } from "@/lib/api/vam";
-import { formatPaceWithUnit } from "@/lib/units";
+import { formatPaceWithUnit, paceSecondsFromKmh } from "@/lib/units";
 import { formatDisplayDate, getTodayDate, isFutureDate } from "@/lib/date";
-import { parseDurationParts } from "@/lib/utils";
+import { formatSecondsToPace, parseDurationParts } from "@/lib/utils";
 
 type VamTestType = "vam_2000m" | "vam_5min" | "test_30_15_ift" | "yoyo_ri1";
 
@@ -116,7 +116,9 @@ function calculatePreview(testType: VamTestType, value1: number, value2: number 
     return null;
   }
 
-  return { vamPreview: vamKmh.toFixed(2) };
+  const paceSec = paceSecondsFromKmh(vamKmh);
+  const paceStr = paceSec !== null ? formatSecondsToPace(paceSec) : null;
+  return { vamPreview: vamKmh.toFixed(2), paceStr };
 }
 
 export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = false, onSuccess }: Props) {
@@ -490,10 +492,15 @@ export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = fa
       {preview && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-4">
           <p className="text-sm font-medium text-green-800">Vista previa del resultado</p>
-          <div className="flex gap-6 mt-1">
+          <div className="flex flex-wrap gap-6 mt-1">
             <span className="text-green-700 text-sm">
               VAM: <strong>{preview.vamPreview} km/h</strong>
             </span>
+            {preview.paceStr && (
+              <span className="text-green-700 text-sm">
+                Ritmo: <strong>{formatPaceWithUnit(preview.paceStr)}</strong>
+              </span>
+            )}
           </div>
         </div>
       )}

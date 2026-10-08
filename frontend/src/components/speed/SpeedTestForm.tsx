@@ -4,8 +4,9 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createSpeedTest } from "@/lib/api/speed";
 import { SPEED_TEST_DISTANCE_PRESETS } from "@/lib/constants";
 import { formatDisplayDate, getTodayDate, isFutureDate } from "@/lib/date";
-import { formatPaceWithUnit } from "@/lib/units";
+import { formatPaceWithUnit, paceSecondsFromKmh } from "@/lib/units";
 import { calculateVelKmh } from "@/lib/speedCalc";
+import { formatSecondsToPace } from "@/lib/utils";
 
 interface Props {
   athleteId: number | null;
@@ -77,6 +78,12 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
     () => calculateVelKmh(parsedDistancia, parsedTiempo),
     [parsedDistancia, parsedTiempo],
   );
+
+  const pacePreview = useMemo(() => {
+    if (velKmhPreview === null) return null;
+    const sec = paceSecondsFromKmh(velKmhPreview);
+    return sec !== null ? formatSecondsToPace(sec) : null;
+  }, [velKmhPreview]);
 
   const selectedPreset =
     Number.isFinite(parsedDistancia) &&
@@ -255,14 +262,19 @@ export function SpeedTestForm({ athleteId, authToken, embedded = false, onSucces
 
       {velKmhPreview !== null ? (
         <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-indigo-700">
-            Velocidad promedio calculada
-          </p>
-          <p className="mt-1 text-2xl font-semibold text-indigo-900">
-            {velKmhPreview.toFixed(2)} <span className="text-base font-medium">km/h</span>
-          </p>
+          <p className="text-xs font-medium uppercase tracking-wide text-indigo-700">Vista previa del resultado</p>
+          <div className="mt-2 flex flex-wrap items-baseline gap-6">
+            <p className="text-2xl font-semibold text-indigo-900">
+              {velKmhPreview.toFixed(2)} <span className="text-base font-medium">km/h</span>
+            </p>
+            {pacePreview && (
+              <p className="text-lg font-semibold text-indigo-900">
+                {formatPaceWithUnit(pacePreview)}
+              </p>
+            )}
+          </div>
           <p className="mt-1 text-xs text-indigo-700">
-            {parsedDistancia} m ÷ {parsedTiempo} s × 3,6
+            Promedio: {parsedDistancia} m ÷ {parsedTiempo} s × 3,6
           </p>
         </div>
       ) : (

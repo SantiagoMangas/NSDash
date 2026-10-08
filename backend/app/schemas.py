@@ -20,6 +20,74 @@ class UserResponse(BaseModel):
     email: str
 
 
+class UserMeResponse(BaseModel):
+    id: int
+    email: str
+    role: str
+    name: Optional[str] = None
+    photo_url: Optional[str] = None
+    bio: Optional[str] = None
+    phone: Optional[str] = None
+    must_change_password: bool = False
+
+
+class UserProfileUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    photo_url: Optional[str] = Field(default=None, max_length=2048)
+    bio: Optional[str] = Field(default=None, max_length=2000)
+    phone: Optional[str] = Field(default=None, max_length=50)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class CoachCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    email: str
+    password: str = Field(min_length=8)
+    bio: Optional[str] = Field(default=None, max_length=2000)
+
+
+class CoachSummary(BaseModel):
+    id: int
+    email: str
+    name: Optional[str] = None
+    bio: Optional[str] = None
+    phone: Optional[str] = None
+    photo_url: Optional[str] = None
+    is_active: bool
+    must_change_password: bool
+    athlete_count: int = 0
+
+
+class CoachCreateResponse(CoachSummary):
+    """Incluye la contraseña temporal una sola vez en la respuesta HTTP."""
+
+    temporary_password: str
+
+
+class CoachAdminUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    email: Optional[str] = None
+    photo_url: Optional[str] = Field(default=None, max_length=2048)
+    bio: Optional[str] = Field(default=None, max_length=2000)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    is_active: Optional[bool] = None
+
+
+class CoachResetPasswordResponse(BaseModel):
+    temporary_password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    must_change_password: bool = False
+    role: str
+
+
 class AthleteCreate(BaseModel):
     name: str
     team_id: Optional[int] = None
@@ -667,7 +735,14 @@ class RsaFatigueTestSummary(BaseModel):
     id: int
     athlete_id: int
     date: Date
+    distancia_sprint_m: Optional[float] = None
+    pausa_s: Optional[float] = None
     cantidad_sprints: int
+    tiempos: list[float] = []
+    mejor_tiempo: float
+    peor_tiempo: float
+    tiempo_total: float
+    tiempo_ideal: float
     indice_fatiga_pct: float
     categoria: str
 

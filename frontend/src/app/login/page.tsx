@@ -1,21 +1,50 @@
 "use client";
 
 import { type FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { login } from "@/lib/api/auth";
-import { getToken, setToken } from "@/lib/storage";
+import { validateStoredSession } from "@/lib/auth/session";
+import { fetchMe } from "@/lib/api/users";
+import { clearToken, getToken, setToken } from "@/lib/storage";
+
+const SESSION_INVALID_MSG = "No pudimos validar tu sesión. Volvé a iniciar sesión.";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   useEffect(() => {
-    if (getToken()) {
-      router.replace("/inicio");
+    if (searchParams.get("sesion") === "invalida") {
+      setError(SESSION_INVALID_MSG);
     }
+  }, [searchParams]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function maybeRedirect() {
+      if (!getToken()) return;
+      const valid = await validateStoredSession();
+      if (cancelled) return;
+      if (!valid) {
+        clearToken();
+        return;
+      }
+      try {
+        const me = await fetchMe();
+        router.replace(me.must_change_password ? "/perfil?obligatorio=1" : "/inicio");
+      } catch {
+        clearToken();
+        if (!cancelled) setError(SESSION_INVALID_MSG);
+      }
+    }
+    void maybeRedirect();
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -27,7 +56,11 @@ export default function LoginPage() {
       setToken(data.access_token);
       setEmail("");
       setPassword("");
-      router.replace("/inicio");
+      if (data.must_change_password) {
+        router.replace("/perfil?obligatorio=1");
+      } else {
+        router.replace("/inicio");
+      }
     } catch {
       setError("Email o contraseña incorrectos");
     } finally {

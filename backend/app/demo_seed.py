@@ -31,8 +31,18 @@ from .speed_calculator import calculate_vel_kmh
 from .strength_rm import compute_estimated_rm
 from .vam_calculator import calculate_vam_from_test
 
+import os
+
 ADMIN_EMAIL = "admin@ns.com"
-ADMIN_PASSWORD = "1234"
+
+
+def _admin_password() -> str:
+    password = os.getenv("ADMIN_INITIAL_PASSWORD", "").strip()
+    if len(password) < 8:
+        raise RuntimeError(
+            "ADMIN_INITIAL_PASSWORD (mín. 8 caracteres) requerida para operaciones de seed con admin."
+        )
+    return password
 SHOWCASE_TEAM_MARKER = "Hockey Primera"
 
 # Historial demo con fechas fijas (idempotente). No usar date.today() para filas de seed.
@@ -424,7 +434,7 @@ def _get_admin(db: Session, admin_email: str = ADMIN_EMAIL) -> User:
         return admin
     admin = User(
         email=admin_email,
-        password_hash=hash_password(ADMIN_PASSWORD),
+        password_hash=hash_password(_admin_password()),
         is_admin=True,
     )
     db.add(admin)

@@ -169,7 +169,7 @@ export default function UnitConverter({ initialKmh = 12, unitConversions }: Prop
     <div className="sticky top-6 rounded-3xl border border-slate-200 bg-white shadow-sm p-6">
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-slate-900">Conversor de Unidades</h2>
-        <p className="mt-1 text-sm text-slate-600">Convierte entre km/h, min/km y m/s en tiempo real.</p>
+        <p className="mt-1 text-sm text-slate-600">Convierte entre km/h, m/km y m/s en tiempo real.</p>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <label className="space-y-2">
@@ -182,7 +182,7 @@ export default function UnitConverter({ initialKmh = 12, unitConversions }: Prop
           />
         </label>
         <label className="space-y-2">
-          <span className="text-sm font-medium text-slate-700">min/km</span>
+          <span className="text-sm font-medium text-slate-700">m/km</span>
           <input
             className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900"
             value={values.mpm}

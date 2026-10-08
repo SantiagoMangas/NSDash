@@ -44,7 +44,7 @@ export function IntervalRowsTable({ rows, title, subtitle, compact = false }: Pr
             <tr>
               <th className="px-3 py-2">%</th>
               <th className="px-3 py-2">vel. (km/h)</th>
-              <th className="px-3 py-2">Ritmo (min/km)</th>
+              <th className="px-3 py-2">Ritmo (m/km)</th>
             </tr>
           </thead>
           <tbody>

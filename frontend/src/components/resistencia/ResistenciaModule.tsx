@@ -1,12 +1,10 @@
 "use client";
 
-import { VamTestHistory } from "@/components/speed/VamTestHistory";
-import { SpeedTestHistory } from "@/components/speed/SpeedTestHistory";
-import { RsaFatigueTestHistory } from "@/components/speed/RsaFatigueTestHistory";
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { useResistenciaData } from "@/hooks/useResistenciaData";
 import { AsrSection } from "./asr/AsrSection";
 import { AvailableMetricsSection } from "./metrics/AvailableMetricsSection";
+import { VamProgressChart } from "./metrics/VamProgressChart";
 import { EvaluationsSection } from "./EvaluationsSection";
 import { TrainingsSection } from "./trainings/TrainingsSection";
 
@@ -47,11 +45,20 @@ export function ResistenciaModule({
           />
 
           <AvailableMetricsSection
+            athleteId={athleteId}
+            historyRefreshKey={historyRefreshKey}
             dashboard={dashboard}
             progress={progress}
             loading={loading}
             error={error}
+            onHistoryDeleted={onEvaluationSuccess}
           />
+
+          {dashboard && (progress?.history?.length ?? 0) > 0 && (
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+              <VamProgressChart history={progress?.history ?? []} />
+            </section>
+          )}
 
           <AsrSection athleteId={athleteId} refreshKey={historyRefreshKey} />
 
@@ -63,26 +70,6 @@ export function ResistenciaModule({
             onDashboardRefresh={refreshDashboard}
           />
 
-          <section>
-            <h2 className="text-base font-semibold text-slate-700 mb-4">Historial</h2>
-            <div className="space-y-6">
-              <VamTestHistory
-                athleteId={athleteId}
-                refreshKey={historyRefreshKey}
-                onDeleted={onEvaluationSuccess}
-              />
-              <SpeedTestHistory
-                athleteId={athleteId}
-                refreshKey={historyRefreshKey}
-                onDeleted={onEvaluationSuccess}
-              />
-              <RsaFatigueTestHistory
-                athleteId={athleteId}
-                refreshKey={historyRefreshKey}
-                onDeleted={onEvaluationSuccess}
-              />
-            </div>
-          </section>
         </>
       )}
     </div>

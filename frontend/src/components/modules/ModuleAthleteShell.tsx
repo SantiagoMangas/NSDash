@@ -45,11 +45,7 @@ export function ModuleAthleteShell({
   const [teams, setTeams] = useState<Team[]>([]);
   const [athlete, setAthlete] = useState<Athlete | null>(null);
   const [loadingAthlete, setLoadingAthlete] = useState(false);
-  const [authToken, setAuthToken] = useState<string | null>(null);
-
-  useEffect(() => {
-    setAuthToken(getToken());
-  }, []);
+  const [authToken] = useState<string | null>(() => getToken());
 
   useEffect(() => {
     setAthleteId(athleteIdFromUrl);
@@ -59,7 +55,8 @@ export function ModuleAthleteShell({
     persistSessionAtletaId(athleteId);
   }, [athleteId]);
 
-  useEffect(() => {
+  const loadAthletesAndTeams = useCallback(() => {
+    if (!getToken()) return;
     getAthletes()
       .then((data) =>
         Array.isArray(data)
@@ -70,6 +67,10 @@ export function ModuleAthleteShell({
       .catch(() => setAthletes([]));
     getTeams().then(setTeams).catch(() => setTeams([]));
   }, []);
+
+  useEffect(() => {
+    loadAthletesAndTeams();
+  }, [loadAthletesAndTeams]);
 
   const setAtletaInUrl = useCallback(
     (id: number | null) => {

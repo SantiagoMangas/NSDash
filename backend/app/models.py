@@ -10,7 +10,16 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
+    # Legacy flag; autorización usa `role`. Se mantiene en sync en migración/startup.
     is_admin = Column(Boolean, default=False, nullable=False)
+    role = Column(String(20), nullable=False, default="coach", index=True)
+    name = Column(String(255), nullable=True)
+    photo_url = Column(String(2048), nullable=True)
+    bio = Column(Text, nullable=True)
+    phone = Column(String(50), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    must_change_password = Column(Boolean, default=False, nullable=False)
+    auth_token_version = Column(Integer, nullable=False, default=0)
 
 
 class Team(Base):

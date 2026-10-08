@@ -5,13 +5,18 @@ import { LoadingCard } from "@/components/ui/LoadingCard";
 import { formatDisplayDate } from "@/lib/date";
 import { formatTestTypeLabel, getBestTestMetricLabel, getLatestTestMetricLabel } from "@/lib/resistencia/constants";
 import type { VelocityDashboard, VamProgress } from "@/lib/types";
-import { VamProgressChart } from "./VamProgressChart";
+import { VamTestHistory } from "@/components/speed/VamTestHistory";
+import { SpeedTestHistory } from "@/components/speed/SpeedTestHistory";
+import { RsaFatigueTestHistory } from "@/components/speed/RsaFatigueTestHistory";
 
 type Props = {
+  athleteId: number | null;
+  historyRefreshKey: number;
   dashboard: VelocityDashboard | null;
   progress: VamProgress | null;
   loading: boolean;
   error: string | null;
+  onHistoryDeleted?: () => void;
 };
 
 function computeProgressStatus(history: VamProgress["history"]) {
@@ -52,7 +57,15 @@ const TONE_CLASSES = {
   slate: "bg-slate-50 border-slate-200 text-slate-600",
 };
 
-export function AvailableMetricsSection({ dashboard, progress, loading, error }: Props) {
+export function AvailableMetricsSection({
+  athleteId,
+  historyRefreshKey,
+  dashboard,
+  progress,
+  loading,
+  error,
+  onHistoryDeleted,
+}: Props) {
   const latestTest = useMemo(() => {
     if (!dashboard?.all_tests_summary?.length) return null;
     return [...dashboard.all_tests_summary].sort(
@@ -76,14 +89,16 @@ export function AvailableMetricsSection({ dashboard, progress, loading, error }:
 
       {loading ? (
         <LoadingCard />
-      ) : !dashboard ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
-          <p className="text-sm text-slate-500">
-            {error ?? "No hay métricas disponibles todavía. Registrá una evaluación para comenzar."}
-          </p>
-        </div>
       ) : (
         <div className="space-y-6">
+          {!dashboard ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center">
+              <p className="text-sm text-slate-500">
+                {error ?? "No hay métricas resumidas todavía. Registrá una evaluación para comenzar."}
+              </p>
+            </div>
+          ) : (
+          <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-500">
@@ -131,41 +146,29 @@ export function AvailableMetricsSection({ dashboard, progress, loading, error }:
             </div>
           </div>
 
-          {dashboard.zones_source.available && dashboard.training_zones.length > 0 && (
-            <div className="rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
-                <h3 className="text-sm font-medium text-slate-700">Capacidades por zona</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-xs text-slate-700">
-                  <thead className="bg-slate-100 text-slate-900">
-                    <tr>
-                      <th className="px-3 py-2">Zona</th>
-                      <th className="px-3 py-2">Intensidad</th>
-                      <th className="px-3 py-2">vel. (km/h)</th>
-                      <th className="px-3 py-2">Ritmo (min/km)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dashboard.training_zones.map((zone) => (
-                      <tr key={zone.zona} className="odd:bg-white even:bg-slate-50">
-                        <td className="px-3 py-2 font-medium">{zone.zona}</td>
-                        <td className="px-3 py-2">{zone.intensidad}</td>
-                        <td className="px-3 py-2">
-                          {zone.vel_min_kmh.toFixed(1)} – {zone.vel_max_kmh.toFixed(1)}
-                        </td>
-                        <td className="px-3 py-2">
-                          {zone.ritmo_min} – {zone.ritmo_max}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+          </>
           )}
 
-          <VamProgressChart history={progress?.history ?? []} />
+          <VamTestHistory
+            athleteId={athleteId}
+            refreshKey={historyRefreshKey}
+            embeddedInMetrics
+            onDeleted={onHistoryDeleted}
+          />
+
+          <SpeedTestHistory
+            athleteId={athleteId}
+            refreshKey={historyRefreshKey}
+            embeddedInMetrics
+            onDeleted={onHistoryDeleted}
+          />
+
+          <RsaFatigueTestHistory
+            athleteId={athleteId}
+            refreshKey={historyRefreshKey}
+            embeddedInMetrics
+            onDeleted={onHistoryDeleted}
+          />
         </div>
       )}
     </section>

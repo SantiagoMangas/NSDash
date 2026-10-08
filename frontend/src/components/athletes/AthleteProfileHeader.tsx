@@ -9,6 +9,7 @@ import { athleteInitials, splitAthleteName } from "@/lib/athleteName";
 import { formatDisplayDate } from "@/lib/date";
 import { resolveAthletePhotoUrl } from "@/lib/api/uploads";
 import { parseApiError } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AthleteEditModal } from "./AthleteEditModal";
 
 type Props = {
@@ -36,22 +37,17 @@ export function AthleteProfileHeader({
   const [expanded, setExpanded] = useState(!defaultCollapsed);
   const [editOpen, setEditOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const { firstName, lastName } = splitAthleteName(athlete.name);
   const photoSrc = resolveAthletePhotoUrl(athlete.photo_url);
 
-  const handleDelete = async () => {
+  const handleDeleteConfirm = async () => {
     if (isDeleting) return;
-    if (
-      !window.confirm(
-        `¿Eliminar a ${athlete.name}? Se borrarán también sus registros de fuerza, velocidad y VAM.`,
-      )
-    ) {
-      return;
-    }
     setIsDeleting(true);
     try {
       await deleteAthlete(athlete.id);
       onToast("success", "Atleta eliminado");
+      setDeleteConfirmOpen(false);
       onAthleteDeleted();
     } catch (err) {
       onToast("error", parseApiError(err, "No se pudo eliminar el atleta."));
@@ -156,13 +152,25 @@ export function AthleteProfileHeader({
       <div className="mt-6 pt-4 border-t border-slate-100">
         <button
           type="button"
-          onClick={handleDelete}
+          onClick={() => setDeleteConfirmOpen(true)}
           disabled={isDeleting}
           className="text-sm font-medium text-red-600 hover:text-red-700 disabled:opacity-50"
         >
           {isDeleting ? "Eliminando..." : "Eliminar atleta"}
         </button>
       </div>
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title={`Eliminar a ${athlete.name}`}
+        description="Se borrarán también sus registros de fuerza, velocidad, VAM y resistencia. Esta acción no se puede deshacer."
+        confirmLabel="Sí, eliminar atleta"
+        isLoading={isDeleting}
+        onCancel={() => {
+          if (!isDeleting) setDeleteConfirmOpen(false);
+        }}
+        onConfirm={() => void handleDeleteConfirm()}
+      />
 
       <AthleteEditModal
         open={editOpen}
