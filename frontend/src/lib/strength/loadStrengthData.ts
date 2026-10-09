@@ -126,13 +126,21 @@ export async function loadProgress(
             ((item as { estimated_rm?: unknown }).estimated_rm === null ||
               typeof (item as { estimated_rm?: unknown }).estimated_rm === "number"),
         )
-        .map((item) => ({
-          date: item.date,
-          estimated_rm: item.estimated_rm,
-          weight: item.weight,
-          reps: item.reps,
-          pull_up_modality: item.pull_up_modality ?? null,
-        })),
+        .map(
+          (item: {
+            date: string;
+            estimated_rm: number | null;
+            weight: number;
+            reps: number;
+            pull_up_modality?: string | null;
+          }) => ({
+            date: item.date,
+            estimated_rm: item.estimated_rm,
+            weight: item.weight,
+            reps: item.reps,
+            pull_up_modality: item.pull_up_modality ?? null,
+          }),
+        ),
     };
   } catch {
     return null;

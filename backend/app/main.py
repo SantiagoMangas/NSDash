@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from . import asr_calculator, auth, models, schemas, rsa_calculator, speed_calculator, team_grouping, vam_calculator
+from . import access, asr_calculator, auth, models, schemas, rsa_calculator, speed_calculator, team_grouping, vam_calculator
 from .catalog_seed import seed_sports_catalog
 from .panel_helpers import (
     athlete_query_with_relations,
@@ -24,6 +24,7 @@ from .session_calculators import hiit_continuo, hiit_corto, hiit_largo, mas_trai
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
 from .sqlite_startup_backup import try_backup_sqlite_before_migrations
 from .demo_seed import seed_showcase_data
+from .user_routes import router as user_router
 from .strength_percentage import (
     apply_exercise_percentage_curves,
     build_percentage_table,
@@ -60,6 +61,7 @@ def get_allowed_origins() -> list[str]:
 
 
 app = FastAPI()
+app.include_router(user_router)
 
 UPLOADS_DIR = Path(__file__).resolve().parent / "uploads" / "athlete-photos"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -98,7 +100,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Nombres exactos hoja "RM para app" (Estimación_1RM_-_E-pley.xlsx).
+# Catálogo fuerza — hoja "RM para app", columna O, filas 35–58.
+# Fuente: Estimación 1RM - E-pley (4).xlsx (24 ejercicios).
+# Typos alineados al Excel (confirmar con Nico antes de corregir en DB):
+#   - "Prufundo" (Snatch colgado), "Domianda" (dominada prona), "Traccion" sin tilde en vertical.
+# Excepción: "Oly - Clean & Jerk - Envión" en app SIN espacio final; el Excel a veces trae espacio al final (audit hace .strip()).
 STRENGTH_EXERCISES = [
     "Sentadilla - Front Squat",
     "Sentadilla - Box Squat",
@@ -175,6 +181,65 @@ SPEED_TEST_COLUMNS: dict[str, str] = {
     "velocidad_pico_kmh": "FLOAT",
 }
 
+USER_PROFILE_COLUMNS: dict[str, str] = {
+    "role": "VARCHAR(20) NOT NULL DEFAULT 'coach'",
+    "name": "VARCHAR(255)",
+    "photo_url": "VARCHAR(2048)",
+    "bio": "TEXT",
+    "phone": "VARCHAR(50)",
+    "is_active": "BOOLEAN NOT NULL DEFAULT 1",
+    "must_change_password": "BOOLEAN NOT NULL DEFAULT 0",
+    "auth_token_version": "INTEGER NOT NULL DEFAULT 0",
+}
+
+
+def migrate_user_profile_columns() -> None:
+    existing_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+    with engine.begin() as connection:
+        for column_name, column_type in USER_PROFILE_COLUMNS.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    text(f"ALTER TABLE users ADD COLUMN {column_name} {column_type}")
+                )
+
+
+def sync_user_roles_and_admin_profile(db: Session) -> None:
+    """Migra is_admin → role y perfila al admin de plataforma."""
+    users = db.query(models.User).all()
+    changed = False
+    for user in users:
+        email = (user.email or "").strip().lower()
+        if user.is_admin or email == access.PLATFORM_ADMIN_EMAIL.lower():
+            if user.role != access.ROLE_ADMIN:
+                user.role = access.ROLE_ADMIN
+                changed = True
+            if not user.is_admin:
+                user.is_admin = True
+                changed = True
+            if not user.name:
+                user.name = "Nicolás Sesma"
+                changed = True
+        elif not getattr(user, "role", None) or user.role not in (
+            access.ROLE_ADMIN,
+            access.ROLE_COACH,
+        ):
+            user.role = access.ROLE_COACH
+            changed = True
+        if user.is_active is None:
+            user.is_active = True
+            changed = True
+    if changed:
+        db.commit()
+
+
+def get_admin_initial_password() -> str:
+    password = os.getenv("ADMIN_INITIAL_PASSWORD", "").strip()
+    if len(password) < auth.MIN_PASSWORD_LENGTH:
+        raise RuntimeError(
+            "Definí ADMIN_INITIAL_PASSWORD (mín. 8 caracteres) antes del primer arranque con DB vacía."
+        )
+    return password
+
 def migrate_athlete_profile_columns() -> None:
     existing_columns = {
         column["name"] for column in inspect(engine).get_columns("athletes")
@@ -197,6 +262,33 @@ def migrate_athlete_panel_columns() -> None:
                 connection.execute(
                     text(f"ALTER TABLE athletes ADD COLUMN {column_name} {column_type}")
                 )
+
+
+def migrate_exercise_log_kind_column() -> None:
+    existing_columns = {column["name"] for column in inspect(engine).get_columns("exercises")}
+    with engine.begin() as connection:
+        if "log_kind" not in existing_columns:
+            connection.execute(
+                text(
+                    f"ALTER TABLE exercises ADD COLUMN log_kind VARCHAR(32) "
+                    f"DEFAULT '{LOG_KIND_RM_ESTIMATED}'"
+                )
+            )
+
+
+def migrate_training_log_pull_up_modality_column() -> None:
+    existing_columns = {column["name"] for column in inspect(engine).get_columns("training_logs")}
+    with engine.begin() as connection:
+        if "pull_up_modality" not in existing_columns:
+            connection.execute(
+                text("ALTER TABLE training_logs ADD COLUMN pull_up_modality VARCHAR(20)")
+            )
+
+
+def apply_exercise_log_kinds(db: Session) -> None:
+    for exercise in db.query(models.Exercise).all():
+        exercise.log_kind = resolve_log_kind_for_exercise_name(exercise.name)
+    db.commit()
 
 
 def migrate_speed_test_columns() -> None:
@@ -284,32 +376,39 @@ def migrate_strength_exercises(db: Session) -> None:
         db.commit()
 
 
-DEFAULT_ADMIN_EMAIL = "admin@ns.com"
-DEFAULT_ADMIN_PASSWORD = "1234"
+DEFAULT_ADMIN_EMAIL = access.PLATFORM_ADMIN_EMAIL
 
 
 @app.on_event("startup")
 def on_startup() -> None:
+    auth.assert_production_secret_key()
     log_db_startup_info()
     try_backup_sqlite_before_migrations()
     Base.metadata.create_all(bind=engine)
     migrate_athlete_profile_columns()
     migrate_athlete_panel_columns()
     migrate_speed_test_columns()
+    migrate_user_profile_columns()
     migrate_exercise_rm_columns()
     migrate_exercise_percentage_curve_column()
     migrate_exercise_log_kind_column()
     migrate_training_log_pull_up_modality_column()
     with SessionLocal() as db:
         if db.query(models.User).count() == 0:
+            initial_password = get_admin_initial_password()
             db.add(
                 models.User(
                     email=DEFAULT_ADMIN_EMAIL,
-                    password_hash=auth.hash_password(DEFAULT_ADMIN_PASSWORD),
+                    password_hash=auth.hash_password(initial_password),
                     is_admin=True,
+                    role=access.ROLE_ADMIN,
+                    name="Nicolás Sesma",
+                    is_active=True,
+                    must_change_password=False,
                 )
             )
             db.commit()
+        sync_user_roles_and_admin_profile(db)
         migrate_strength_exercises(db)
         apply_exercise_log_kinds(db)
         apply_exercise_rm_profiles(db)
@@ -332,26 +431,34 @@ def health_check() -> dict[str, str]:
 
 
 @app.get("/test-auth")
-def test_auth(current_user: int = Depends(auth.get_current_user)) -> dict[str, int]:
+def test_auth(user: models.User = Depends(auth.get_current_user)) -> dict[str, int]:
     """Test endpoint to verify auth and CORS work together."""
-    return {"user_id": current_user}
+    return {"user_id": user.id}
 
 
-@app.post("/auth/login", response_model=schemas.Token)
-def login(login_request: schemas.LoginRequest, db: Session = Depends(get_db)) -> dict[str, str]:
-    # Find user by email
-    user = db.query(models.User).filter(models.User.email == login_request.email).first()
-    
-    # Verify user exists and password is correct
+@app.post("/auth/login", response_model=schemas.LoginResponse)
+def login(login_request: schemas.LoginRequest, db: Session = Depends(get_db)) -> dict[str, object]:
+    email = login_request.email.strip().lower()
+    user = db.query(models.User).filter(models.User.email == email).first()
+
     if not user or not auth.verify_password(login_request.password, user.password_hash):
         raise HTTPException(
             status_code=401,
-            detail="Incorrect email or password"
+            detail="Incorrect email or password",
         )
-    
-    # Create and return JWT token
-    access_token = auth.create_access_token({"user_id": user.id})
-    return {"access_token": access_token, "token_type": "bearer"}
+    if not user.is_active:
+        raise HTTPException(
+            status_code=401,
+            detail="Cuenta desactivada",
+        )
+
+    access_token = auth.create_access_token_for_user(user)
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "must_change_password": user.must_change_password,
+        "role": user.role,
+    }
 
 
 @app.post("/auth/register", response_model=schemas.UserResponse)
@@ -366,10 +473,10 @@ def register(
 def create_team(
     team: schemas.TeamCreate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> models.Team:
     db_team = models.Team(
-        coach_id=current_user,
+        coach_id=user.id,
         name=team.name,
         image_url=team.image_url,
     )
@@ -382,14 +489,9 @@ def create_team(
 @app.get("/teams", response_model=list[schemas.TeamResponse])
 def list_teams(
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> list[models.Team]:
-    return (
-        db.query(models.Team)
-        .filter(models.Team.coach_id == current_user)
-        .order_by(models.Team.name.asc())
-        .all()
-    )
+    return access.teams_query(db, user).all()
 
 
 @app.patch("/teams/{team_id}", response_model=schemas.TeamResponse)
@@ -397,9 +499,9 @@ def update_team(
     team_id: int,
     team_update: schemas.TeamUpdate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> models.Team:
-    db_team = get_owned_team(db, team_id, current_user)
+    db_team = access.get_team_for_user(db, team_id, user)
     update_data = team_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_team, field, value)
@@ -412,9 +514,9 @@ def update_team(
 def delete_team(
     team_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict[str, str]:
-    db_team = get_owned_team(db, team_id, current_user)
+    db_team = access.get_team_for_user(db, team_id, user)
     db.query(models.Athlete).filter(models.Athlete.team_id == team_id).update(
         {models.Athlete.team_id: None},
         synchronize_session=False,
@@ -427,7 +529,7 @@ def delete_team(
 @app.get("/sports", response_model=list[schemas.SportResponse])
 def list_sports(
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> list[models.Sport]:
     return db.query(models.Sport).order_by(models.Sport.name.asc()).all()
 
@@ -436,7 +538,7 @@ def list_sports(
 def create_sport(
     sport: schemas.SportCreate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> models.Sport:
     existing = db.query(models.Sport).filter(models.Sport.name == sport.name).first()
     if existing is not None:
@@ -453,7 +555,7 @@ def update_sport(
     sport_id: int,
     sport_update: schemas.SportUpdate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> models.Sport:
     db_sport = db.query(models.Sport).filter(models.Sport.id == sport_id).first()
     if db_sport is None:
@@ -478,7 +580,7 @@ def update_sport(
 def delete_sport(
     sport_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict[str, str]:
     db_sport = db.query(models.Sport).filter(models.Sport.id == sport_id).first()
     if db_sport is None:
@@ -510,7 +612,7 @@ def delete_sport(
 def list_positions(
     sport_id: Optional[int] = Query(default=None),
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> list[models.Position]:
     query = db.query(models.Position)
     if sport_id is not None:
@@ -524,7 +626,7 @@ def list_positions(
 def create_position(
     position: schemas.PositionCreate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> models.Position:
     if db.query(models.Sport).filter(models.Sport.id == position.sport_id).first() is None:
         raise HTTPException(status_code=404, detail="Sport not found")
@@ -550,7 +652,7 @@ def update_position(
     position_id: int,
     position_update: schemas.PositionUpdate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> models.Position:
     db_position = db.query(models.Position).filter(models.Position.id == position_id).first()
     if db_position is None:
@@ -584,7 +686,7 @@ def update_position(
 def delete_position(
     position_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict[str, str]:
     db_position = db.query(models.Position).filter(models.Position.id == position_id).first()
     if db_position is None:
@@ -602,7 +704,7 @@ def delete_position(
 async def upload_athlete_photo(
     request: Request,
     file: UploadFile = File(...),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.get_current_user),
 ) -> dict[str, str]:
     data = await file.read()
     if len(data) == 0:
@@ -620,7 +722,7 @@ async def upload_athlete_photo(
             status_code=400,
             detail="Formato no permitido. Usá JPG, PNG o WebP (no HEIC).",
         )
-    filename = f"{current_user}-{uuid.uuid4().hex}{ext}"
+    filename = f"{user.id}-{uuid.uuid4().hex}{ext}"
     dest = UPLOADS_DIR / filename
     dest.write_bytes(data)
     relative = f"/uploads/athlete-photos/{filename}"
@@ -630,18 +732,19 @@ async def upload_athlete_photo(
 
 @app.post("/athletes", response_model=schemas.AthleteResponse)
 def create_athlete(
-    athlete: schemas.AthleteCreate, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
+    athlete: schemas.AthleteCreate, db: Session = Depends(get_db), user: models.User = Depends(auth.require_full_session)
 ) -> schemas.AthleteResponse:
     validate_athlete_relations(
         db,
-        current_user,
+        user.id,
         athlete.team_id,
         athlete.sport_id,
         athlete.position_id,
+        user=user,
     )
     db_athlete = models.Athlete(
         name=athlete.name,
-        coach_id=current_user,
+        coach_id=user.id,
         team_id=athlete.team_id,
         sport_id=athlete.sport_id,
         position_id=athlete.position_id,
@@ -668,9 +771,9 @@ def create_athlete(
 def list_athletes(
     team_id: Optional[int] = Query(default=None),
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> list[schemas.AthleteResponse]:
-    athletes = athlete_query_with_relations(db, current_user, team_id).all()
+    athletes = athlete_query_with_relations(db, user, team_id).all()
     return [serialize_athlete(athlete, db) for athlete in athletes]
 
 
@@ -678,10 +781,10 @@ def list_athletes(
 def get_athlete(
     athlete_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> schemas.AthleteResponse:
     athlete = (
-        athlete_query_with_relations(db, current_user)
+        athlete_query_with_relations(db, user)
         .filter(models.Athlete.id == athlete_id)
         .first()
     )
@@ -695,12 +798,12 @@ def update_athlete(
     athlete_id: int,
     athlete_update: schemas.AthleteUpdate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> schemas.AthleteResponse:
     db_athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
     if db_athlete is None:
         raise HTTPException(status_code=404, detail="Athlete not found")
-    if db_athlete.coach_id != current_user:
+    if not access.can_access_coach_data(user, db_athlete.coach_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     update_data = athlete_update.model_dump(exclude_unset=True)
@@ -711,10 +814,11 @@ def update_athlete(
     )
     validate_athlete_relations(
         db,
-        current_user,
+        user.id,
         merged_team_id,
         merged_sport_id,
         merged_position_id,
+        user=user,
     )
 
     for field, value in update_data.items():
@@ -732,12 +836,12 @@ def update_athlete(
 def delete_athlete(
     athlete_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict[str, str]:
     db_athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
     if db_athlete is None:
         raise HTTPException(status_code=404, detail="Athlete not found")
-    if db_athlete.coach_id != current_user:
+    if not access.can_access_coach_data(user, db_athlete.coach_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     db.query(models.TrainingLog).filter(models.TrainingLog.athlete_id == athlete_id).delete()
@@ -763,54 +867,50 @@ def delete_athlete(
 
 
 def get_owned_training_log(
-    log_id: int, db: Session, current_user: int
+    log_id: int, db: Session, user: models.User
 ) -> models.TrainingLog:
     log = db.query(models.TrainingLog).filter(models.TrainingLog.id == log_id).first()
     if log is None:
         raise HTTPException(status_code=404, detail="TrainingLog not found")
 
     athlete = db.query(models.Athlete).filter(models.Athlete.id == log.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     return log
 
 
 def get_owned_vam_test(
-    test_id: int, db: Session, current_user: int
+    test_id: int, db: Session, user: models.User
 ) -> models.VamTest:
     test = db.query(models.VamTest).filter(models.VamTest.id == test_id).first()
     if test is None:
         raise HTTPException(status_code=404, detail="VamTest not found")
 
     athlete = db.query(models.Athlete).filter(models.Athlete.id == test.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     return test
 
 
 def get_owned_speed_test(
-    test_id: int, db: Session, current_user: int
+    test_id: int, db: Session, user: models.User
 ) -> models.SpeedTest:
     test = db.query(models.SpeedTest).filter(models.SpeedTest.id == test_id).first()
     if test is None:
         raise HTTPException(status_code=404, detail="SpeedTest not found")
 
     athlete = db.query(models.Athlete).filter(models.Athlete.id == test.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     return test
 
 
 def get_owned_rsa_fatigue_test(
-    test_id: int, db: Session, current_user: int
+    test_id: int, db: Session, user: models.User
 ) -> models.RsaFatigueTest:
     test = db.query(models.RsaFatigueTest).filter(models.RsaFatigueTest.id == test_id).first()
     if test is None:
         raise HTTPException(status_code=404, detail="RsaFatigueTest not found")
 
     athlete = db.query(models.Athlete).filter(models.Athlete.id == test.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     return test
 
 
@@ -842,7 +942,7 @@ def exercise_allows_patch(exercise: models.Exercise) -> bool:
 def create_exercise(
     payload: schemas.ExerciseCreate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> models.Exercise:
     existing = (
         db.query(models.Exercise).filter(models.Exercise.name == payload.name).first()
@@ -925,11 +1025,10 @@ def _resolve_training_log_values(
 
 @app.post("/logs", response_model=schemas.TrainingLogResponse)
 def create_log(
-    log: schemas.TrainingLogCreate, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
+    log: schemas.TrainingLogCreate, db: Session = Depends(get_db), user: models.User = Depends(auth.require_full_session)
 ) -> models.TrainingLog:
     athlete = db.query(models.Athlete).filter(models.Athlete.id == log.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     
     exercise = get_exercise_for_log(db, log.exercise_id)
     if exercise is None:
@@ -956,10 +1055,8 @@ def create_log(
 
 
 @app.get("/logs", response_model=list[schemas.TrainingLogResponse])
-def list_logs(db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)) -> list[models.TrainingLog]:
-    return db.query(models.TrainingLog).join(
-        models.Athlete
-    ).filter(models.Athlete.coach_id == current_user).all()
+def list_logs(db: Session = Depends(get_db), user: models.User = Depends(auth.require_full_session)) -> list[models.TrainingLog]:
+    return access.training_logs_query(db, user).all()
 
 
 @app.patch("/logs/{log_id}", response_model=schemas.TrainingLogResponse)
@@ -967,9 +1064,9 @@ def update_log(
     log_id: int,
     log_update: schemas.TrainingLogUpdate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> models.TrainingLog:
-    db_log = get_owned_training_log(log_id, db, current_user)
+    db_log = get_owned_training_log(log_id, db, user)
 
     update_data = log_update.model_dump(exclude_unset=True)
     if not update_data:
@@ -1006,9 +1103,9 @@ def update_log(
 def delete_log(
     log_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict[str, str]:
-    db_log = get_owned_training_log(log_id, db, current_user)
+    db_log = get_owned_training_log(log_id, db, user)
     db.delete(db_log)
     db.commit()
     return {"detail": "TrainingLog deleted"}
@@ -1016,15 +1113,14 @@ def delete_log(
 
 @app.get("/logs/{log_id}/percentages")
 def get_log_percentages(
-    log_id: int, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
+    log_id: int, db: Session = Depends(get_db), user: models.User = Depends(auth.require_full_session)
 ) -> list[dict[str, float | int]]:
     log = db.query(models.TrainingLog).filter(models.TrainingLog.id == log_id).first()
     if log is None:
         raise HTTPException(status_code=404, detail="TrainingLog not found")
     
     athlete = db.query(models.Athlete).filter(models.Athlete.id == log.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
 
     exercise = db.query(models.Exercise).filter(models.Exercise.id == log.exercise_id).first()
     if log.estimated_rm is None:
@@ -1034,11 +1130,10 @@ def get_log_percentages(
 
 @app.get("/athletes/{athlete_id}/progress/{exercise_id}")
 def get_athlete_progress(
-    athlete_id: int, exercise_id: int, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
+    athlete_id: int, exercise_id: int, db: Session = Depends(get_db), user: models.User = Depends(auth.require_full_session)
 ) -> dict[str, object]:
     athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     
     exercise = db.query(models.Exercise).filter(models.Exercise.id == exercise_id).first()
     exercise_name = exercise.name if exercise else "Unknown Exercise"
@@ -1078,12 +1173,11 @@ def get_exercise_percentage_table_best_rm(
     athlete_id: int,
     exercise_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict[str, object]:
     """Tabla %RM usando el mejor RM histórico del atleta en el ejercicio (presentación)."""
     athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
 
     exercise = db.query(models.Exercise).filter(models.Exercise.id == exercise_id).first()
     if exercise is None:
@@ -1129,14 +1223,13 @@ def get_exercise_percentage_table_best_rm(
 
 
 @app.get("/logs/{log_id}/summary")
-def get_log_summary(log_id: int, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)) -> dict[str, object]:
+def get_log_summary(log_id: int, db: Session = Depends(get_db), user: models.User = Depends(auth.require_full_session)) -> dict[str, object]:
     log = db.query(models.TrainingLog).filter(models.TrainingLog.id == log_id).first()
     if log is None:
         raise HTTPException(status_code=404, detail="TrainingLog not found")
 
     athlete = db.query(models.Athlete).filter(models.Athlete.id == log.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
 
     exercise = db.query(models.Exercise).filter(models.Exercise.id == log.exercise_id).first()
     exercise_name = exercise.name if exercise else "Unknown Exercise"
@@ -1241,11 +1334,10 @@ def compute_sprint_metrics(log: models.SprintLog, sprint_logs: list[models.Sprin
 
 @app.post("/sprint-logs")
 def create_sprint_log(
-    sprint_log: schemas.SprintLogCreate, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
+    sprint_log: schemas.SprintLogCreate, db: Session = Depends(get_db), user: models.User = Depends(auth.require_full_session)
 ) -> dict[str, object]:
     athlete = db.query(models.Athlete).filter(models.Athlete.id == sprint_log.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
 
     validate_sprint_values(float(sprint_log.distance), float(sprint_log.time_seconds))
 
@@ -1270,11 +1362,10 @@ def create_sprint_log(
 
 @app.get("/athletes/{athlete_id}/sprint-logs", response_model=list[dict[str, object]])
 def get_athlete_sprint_logs(
-    athlete_id: int, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
+    athlete_id: int, db: Session = Depends(get_db), user: models.User = Depends(auth.require_full_session)
 ) -> list[dict[str, object]]:
     athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     
     sprint_logs = (
         db.query(models.SprintLog)
@@ -1289,12 +1380,11 @@ def get_athlete_sprint_logs(
 # [NEW] Session Quality Score endpoint
 @app.get("/athletes/{athlete_id}/sprint-session-score")
 def get_sprint_session_score(
-    athlete_id: int, date: str, db: Session = Depends(get_db), current_user: int = Depends(auth.get_current_user)
+    athlete_id: int, date: str, db: Session = Depends(get_db), user: models.User = Depends(auth.require_full_session)
 ) -> dict[str, object]:
     """Calculate quality score for a specific training session (day)"""
     athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     
     from datetime import datetime as dt
     session_date = dt.strptime(date, "%Y-%m-%d").date()
@@ -1388,7 +1478,7 @@ def get_sprint_session_score(
 
 @app.get("/reference/yoyo-levels", response_model=list[schemas.YoyoLevelItem])
 def get_yoyo_levels(
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> list:
     """Devuelve la tabla oficial Yo-Yo RI1 (nivel → velocidad) desde YOYO_RI1_TABLE."""
     return [
@@ -1401,7 +1491,7 @@ def get_yoyo_levels(
 def create_vam_test(
     data: schemas.VamTestInput,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user)
+    user: models.User = Depends(auth.require_full_session)
 ) -> dict:
     """
     Recibe los datos del test, calcula VAM, persiste en DB,
@@ -1409,8 +1499,7 @@ def create_vam_test(
     """
     # Verify athlete ownership
     athlete = db.query(models.Athlete).filter(models.Athlete.id == data.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     
     try:
         # Calculate VAM from test data
@@ -1457,13 +1546,12 @@ def create_vam_test(
 def list_vam_tests(
     athlete_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user)
+    user: models.User = Depends(auth.require_full_session)
 ) -> list:
     """Lista todos los tests VAM del atleta, ordenados por fecha desc."""
     # Verify athlete ownership
     athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     
     tests = (
         db.query(models.VamTest)
@@ -1566,7 +1654,7 @@ def convert_units(value: float, from_unit: str) -> dict[str, float | str]:
 def get_vam_test(
     test_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user)
+    user: models.User = Depends(auth.require_full_session)
 ) -> dict:
     """Retorna un test VAM con sus zonas y tiempos calculados."""
     test = db.query(models.VamTest).filter(models.VamTest.id == test_id).first()
@@ -1575,8 +1663,7 @@ def get_vam_test(
     
     # Verify athlete ownership
     athlete = db.query(models.Athlete).filter(models.Athlete.id == test.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     
     # Calculate zones and sprint times
     zonas = build_vam_test_zones(vam_calculator.calculate_zones(test.vam_mpm))
@@ -1601,9 +1688,9 @@ def get_vam_test(
 def delete_vam_test(
     test_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict[str, str]:
-    db_test = get_owned_vam_test(test_id, db, current_user)
+    db_test = get_owned_vam_test(test_id, db, user)
     db.delete(db_test)
     db.commit()
     return {"detail": "VamTest deleted"}
@@ -1613,7 +1700,7 @@ def delete_vam_test(
 def get_vam_progress(
     athlete_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user)
+    user: models.User = Depends(auth.require_full_session)
 ) -> dict:
     """
     Retorna el historial de VAM del atleta para graficar progresión.
@@ -1621,8 +1708,7 @@ def get_vam_progress(
     """
     # Verify athlete ownership
     athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
     
     tests = (
         db.query(models.VamTest)
@@ -1650,13 +1736,12 @@ def get_vam_progress(
 def get_velocity_dashboard(
     athlete_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user)
+    user: models.User = Depends(auth.require_full_session)
 ) -> dict:
     """Retorna el dashboard de velocidad completo usando siempre el mejor VAM registrado."""
     try:
         athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
-        if not athlete or athlete.coach_id != current_user:
-            raise HTTPException(status_code=403, detail="Access denied")
+        access.assert_can_access_athlete(user, athlete)
 
         tests = (
             db.query(models.VamTest)
@@ -1789,7 +1874,7 @@ def get_velocity_dashboard(
 @app.post("/convert-units", response_model=schemas.UnitConversionResponse)
 def post_convert_units(
     payload: schemas.UnitConversionRequest,
-    current_user: int = Depends(auth.get_current_user)
+    user: models.User = Depends(auth.require_full_session)
 ) -> dict[str, float | str]:
     """Convierte entre km/h, m/min y m/s para el picker de la UI."""
     return convert_units(payload.value, payload.from_unit)
@@ -1801,7 +1886,7 @@ def post_convert_units(
 )
 def post_calculate_hiit_corto(
     payload: schemas.HiitCortoCalculateRequest,
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """Calcula parámetros de sesión HIIT Corto sin persistencia."""
     try:
@@ -1825,7 +1910,7 @@ def post_calculate_hiit_corto(
 )
 def post_calculate_hiit_largo(
     payload: schemas.HiitLargoCalculateRequest,
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """Calcula parámetros de sesión HIIT Largo sin persistencia."""
     try:
@@ -1849,7 +1934,7 @@ def post_calculate_hiit_largo(
 )
 def post_calculate_hiit_continuo_largo(
     payload: schemas.HiitContinuoLargoCalculateRequest,
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """Calcula parámetros de sesión HIIT Continuo Largo sin persistencia."""
     try:
@@ -1873,7 +1958,7 @@ def post_calculate_hiit_continuo_largo(
 )
 def post_calculate_hiit_continuo_corto(
     payload: schemas.HiitContinuoCortoCalculateRequest,
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """Calcula parámetros de sesión HIIT Continuo Corto sin persistencia."""
     try:
@@ -1897,7 +1982,7 @@ def post_calculate_hiit_continuo_corto(
 )
 def post_calculate_mas_training(
     payload: schemas.MasTrainingCalculateRequest,
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """Calcula parámetros de sesión MAS Training (Largo/Corto) sin persistencia."""
     try:
@@ -1925,7 +2010,7 @@ def post_calculate_mas_training(
 )
 def post_calculate_tempo_run(
     payload: schemas.TempoRunCalculateRequest,
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """Calcula parámetros de sesión Tempo Run (Extensivo / I. Recovery) sin persistencia."""
     try:
@@ -1953,7 +2038,7 @@ def post_calculate_tempo_run(
 )
 def post_calculate_rsa(
     payload: schemas.RsaCalculateRequest,
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """Calcula parámetros de sesión RSA/RST/SIT sin persistencia."""
     try:
@@ -2019,15 +2104,14 @@ def get_athlete_asr(
     pct_mss: float = Query(default=80, gt=0),
     pct_srr: float = Query(default=60),
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """
     ASR = MSS - IFT, with dual comparative entry by %MSS and %SRR.
     Returns 200 with `missing` when speed test and/or 30-15 IFT are absent.
     """
     athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
 
     best_speed_test = query_best_speed_test(db, athlete_id)
     best_30_15_test = query_best_30_15_test(db, athlete_id)
@@ -2123,13 +2207,13 @@ def get_national_table(
     pct_srr: float = Query(default=60),
     team_id: Optional[int] = Query(default=None),
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """
     Tabla Nacional del plantel del coach. Sin team_id: todos sus atletas.
     Con team_id: solo atletas de ese equipo (debe pertenecer al coach).
     """
-    athletes = athlete_query_with_relations(db, current_user, team_id).all()
+    athletes = athlete_query_with_relations(db, user, team_id).all()
 
     try:
         rows = [build_national_table_row(athlete, db, pct_srr) for athlete in athletes]
@@ -2149,10 +2233,10 @@ def get_national_table_groups(
     cantidad_grupos: int = Query(default=3, ge=1),
     diferencia_pct: float = Query(default=5, ge=0),
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """Tabla Nacional + agrupamiento por velocidad de referencia al %SRR."""
-    athletes = athlete_query_with_relations(db, current_user, team_id).all()
+    athletes = athlete_query_with_relations(db, user, team_id).all()
 
     try:
         rows = [build_national_table_row(athlete, db, pct_srr) for athlete in athletes]
@@ -2243,12 +2327,11 @@ def set_preferred_speed_test(
     athlete_id: int,
     payload: schemas.PreferredSpeedTestUpdate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """Fija (o limpia) el SpeedTest de referencia persistente para Tempo/RST/SIT."""
     athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
 
     if payload.speed_test_id is None:
         athlete.preferred_speed_test_id = None
@@ -2283,12 +2366,11 @@ def set_preferred_speed_test(
 def create_speed_test(
     data: schemas.SpeedTestInput,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """Create a MSS / speed test from distance (m) and time (s)."""
     athlete = db.query(models.Athlete).filter(models.Athlete.id == data.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
 
     try:
         vel_kmh = speed_calculator.calculate_vel_kmh(data.distancia_m, data.tiempo_s)
@@ -2315,12 +2397,11 @@ def create_speed_test(
 def list_speed_tests(
     athlete_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> list[dict]:
     """List all MSS / speed tests for an athlete, newest first."""
     athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
 
     tests = (
         db.query(models.SpeedTest)
@@ -2336,9 +2417,9 @@ def list_speed_tests(
 def delete_speed_test(
     test_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict[str, str]:
-    db_test = get_owned_speed_test(test_id, db, current_user)
+    db_test = get_owned_speed_test(test_id, db, user)
     db.query(models.Athlete).filter(
         models.Athlete.preferred_speed_test_id == test_id
     ).update(
@@ -2410,12 +2491,11 @@ def build_rsa_fatigue_test_response(db: Session, test: models.RsaFatigueTest) ->
 def create_rsa_fatigue_test(
     data: schemas.RsaFatigueTestInput,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
     """Create an RSA-IFF test from a list of sprint times."""
     athlete = db.query(models.Athlete).filter(models.Athlete.id == data.athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
 
     try:
         results = rsa_calculator.calculate_rsa_fatigue_index(data.tiempos)
@@ -2458,9 +2538,9 @@ def create_rsa_fatigue_test(
 def get_rsa_fatigue_test(
     test_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict:
-    test = get_owned_rsa_fatigue_test(test_id, db, current_user)
+    test = get_owned_rsa_fatigue_test(test_id, db, user)
     return build_rsa_fatigue_test_response(db, test)
 
 
@@ -2468,12 +2548,11 @@ def get_rsa_fatigue_test(
 def list_rsa_fatigue_tests(
     athlete_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> list[dict]:
     """List all RSA-IFF tests for an athlete, newest first."""
     athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
-    if not athlete or athlete.coach_id != current_user:
-        raise HTTPException(status_code=403, detail="Access denied")
+    access.assert_can_access_athlete(user, athlete)
 
     tests = (
         db.query(models.RsaFatigueTest)
@@ -2506,9 +2585,9 @@ def list_rsa_fatigue_tests(
 def delete_rsa_fatigue_test(
     test_id: int,
     db: Session = Depends(get_db),
-    current_user: int = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_full_session),
 ) -> dict[str, str]:
-    db_test = get_owned_rsa_fatigue_test(test_id, db, current_user)
+    db_test = get_owned_rsa_fatigue_test(test_id, db, user)
     db.query(models.RsaSprintTime).filter(
         models.RsaSprintTime.rsa_fatigue_test_id == test_id
     ).delete(synchronize_session=False)

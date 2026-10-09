@@ -19,6 +19,7 @@ import {
   type StrengthLogEditData,
 } from "@/components/strength/StrengthLogEditModal";
 import { DateFormatHintLine, DateInputWithDisplay } from "@/components/ui/DateInputWithDisplay";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import { useToast } from "@/contexts/ToastContext";
 import { DATE_RANGE_OPTIONS } from "@/lib/constants";
@@ -110,6 +111,7 @@ export function StrengthModule({
   const [editingLog, setEditingLog] = useState<StrengthLogEditData | null>(null);
   const [isLogEditModalOpen, setIsLogEditModalOpen] = useState(false);
   const [deletingLogId, setDeletingLogId] = useState<number | null>(null);
+  const [deleteLogTargetId, setDeleteLogTargetId] = useState<number | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>(() =>
     readStoredDateRange(STORAGE_KEYS.dateRange),
   );
@@ -209,7 +211,7 @@ export function StrengthModule({
 
       const usedIds = new Set<number>();
       const mergedLogs: ProgressListItem[] = progress.history
-        .map((item) => {
+        .map((item): ProgressListItem | null => {
           const match = candidateLogs.find(
             (l) =>
               !usedIds.has(l.id) &&
@@ -228,7 +230,7 @@ export function StrengthModule({
             weight: item.weight,
             reps: item.reps,
             estimated_rm: item.estimated_rm,
-            pull_up_modality: item.pull_up_modality ?? match.pull_up_modality,
+            pull_up_modality: item.pull_up_modality ?? match.pull_up_modality ?? null,
           };
         })
         .filter((l): l is ProgressListItem => l !== null);
@@ -415,21 +417,21 @@ export function StrengthModule({
     pushToast("success", "Registro de fuerza actualizado");
   };
 
-  const handleDeleteLog = async (logId: number) => {
+  const handleDeleteLogClick = (logId: number) => {
     if (deletingLogId !== null) return;
-    if (
-      !window.confirm(
-        "¿Eliminar este registro de fuerza? Esta acción no se puede deshacer.",
-      )
-    ) {
-      return;
-    }
+    setDeleteLogTargetId(logId);
+  };
+
+  const handleDeleteLogConfirm = async () => {
+    if (deleteLogTargetId === null || deletingLogId !== null) return;
+    const logId = deleteLogTargetId;
 
     setDeletingLogId(logId);
     try {
       await deleteTrainingLog(logId);
       setLogsReloadToken((p) => p + 1);
       pushToast("success", "Registro de fuerza eliminado");
+      setDeleteLogTargetId(null);
     } catch (error) {
       const msg = parseApiError(
         error,
@@ -640,13 +642,15 @@ export function StrengthModule({
                 {(() => {
                   const lastLog = logs[0];
                   const previousLog = logs[1];
-                  const changePct = previousLog
-                    ? ((lastLog.estimated_rm - previousLog.estimated_rm) /
-                        previousLog.estimated_rm) *
-                      100
-                    : null;
+                  const lastRm = lastLog.estimated_rm;
+                  const previousRm = previousLog?.estimated_rm ?? null;
+                  const changePct =
+                    lastRm != null && previousRm != null && previousRm > 0
+                      ? ((lastRm - previousRm) / previousRm) * 100
+                      : null;
                   const lastLoadRelative = relativeStrength(lastLog.weight, athleteBodyWeightKg);
-                  const lastRmRelative = relativeStrength(lastLog.estimated_rm, athleteBodyWeightKg);
+                  const lastRmRelative =
+                    lastRm != null ? relativeStrength(lastRm, athleteBodyWeightKg) : null;
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                       <div className="bg-slate-50 rounded-xl p-4">
@@ -793,7 +797,10 @@ export function StrengthModule({
                   <ul className="space-y-2">
                     {visibleListLogs.map((log) => {
                       const loadRel = relativeStrength(log.weight, athleteBodyWeightKg);
-                      const rmRel = relativeStrength(log.estimated_rm, athleteBodyWeightKg);
+                      const rmRel =
+                        log.estimated_rm != null
+                          ? relativeStrength(log.estimated_rm, athleteBodyWeightKg)
+                          : null;
                       const isExpanded = expandedLogId === log.id;
                       const showSummary = isExpanded && expandedLogSummary;
                       const logLine = isPullUpExercise
@@ -863,7 +870,7 @@ export function StrengthModule({
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  void handleDeleteLog(log.id);
+                                  void handleDeleteLogClick(log.id);
                                 }}
                                 disabled={deletingLogId === log.id}
                                 className="px-2.5 py-1.5 text-xs font-medium text-red-700 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 transition disabled:opacity-50"
@@ -1068,6 +1075,17 @@ export function StrengthModule({
           )}
         </>
       )}
+      <ConfirmDialog
+        open={deleteLogTargetId !== null}
+        title="Eliminar registro de fuerza"
+        description="Se borrará este registro del historial del ejercicio. Esta acción no se puede deshacer."
+        confirmLabel="Sí, eliminar"
+        isLoading={deletingLogId !== null}
+        onCancel={() => {
+          if (deletingLogId === null) setDeleteLogTargetId(null);
+        }}
+        onConfirm={() => void handleDeleteLogConfirm()}
+      />
     </div>
   );
 }

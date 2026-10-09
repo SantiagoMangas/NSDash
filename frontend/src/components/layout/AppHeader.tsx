@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
+import { isPlatformAdmin } from "@/lib/auth/access";
 
 type Props = {
   onLogout: () => void;
@@ -15,14 +17,22 @@ function navLinkClass(active: boolean): string {
   }`;
 }
 
+function displayName(me: { name: string | null; email: string }): string {
+  return me.name?.trim() || me.email.split("@")[0] || "Usuario";
+}
+
 export function AppHeader({ onLogout }: Props) {
   const pathname = usePathname();
+  const { me } = useAuth();
   const onInicio = pathname === "/inicio";
   const onFuerza = pathname === "/fuerza";
   const onResistencia = pathname === "/resistencia";
   const onAtletas = pathname === "/atletas" || pathname.startsWith("/atletas/");
   const onEquipos = pathname === "/equipos" || pathname.startsWith("/equipos/");
   const onEjercicios = pathname === "/ejercicios" || pathname.startsWith("/ejercicios/");
+  const onPerfil = pathname === "/perfil";
+  const onPreparadores = pathname === "/preparadores";
+  const isAdmin = isPlatformAdmin(me);
 
   return (
     <header className="border-b border-slate-200 bg-white/90 backdrop-blur sticky top-0 z-40">
@@ -43,7 +53,7 @@ export function AppHeader({ onLogout }: Props) {
           <Link href="/fuerza" className={navLinkClass(onFuerza)}>
             💪 Fuerza
           </Link>
-          <Link href="/resistencia" className={navLinkClass(pathname === "/resistencia")}>
+          <Link href="/resistencia" className={navLinkClass(onResistencia)}>
             ⚡ Resistencia
           </Link>
           <Link href="/atletas" className={navLinkClass(onAtletas)}>
@@ -55,6 +65,36 @@ export function AppHeader({ onLogout }: Props) {
           <Link href="/ejercicios" className={navLinkClass(onEjercicios)}>
             Ejercicios
           </Link>
+          {isAdmin && (
+            <Link href="/preparadores" className={navLinkClass(onPreparadores)}>
+              Preparadores
+            </Link>
+          )}
+          {me && (
+            <Link
+              href="/perfil"
+              className={`flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-lg border transition ${
+                onPerfil
+                  ? "border-indigo-200 bg-indigo-50"
+                  : "border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              {me.photo_url ? (
+                <img
+                  src={me.photo_url}
+                  alt=""
+                  className="w-8 h-8 rounded-full object-cover bg-slate-100"
+                />
+              ) : (
+                <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center justify-center">
+                  {displayName(me).slice(0, 2).toUpperCase()}
+                </span>
+              )}
+              <span className="text-sm font-medium text-slate-700 max-w-[8rem] truncate hidden sm:inline">
+                {displayName(me)}
+              </span>
+            </Link>
+          )}
           <button
             type="button"
             onClick={onLogout}

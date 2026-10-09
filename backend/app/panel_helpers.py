@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Query, Session, joinedload
 
 from . import models, schemas
+from .access import athletes_query, get_team_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +44,11 @@ def calculate_age(birth_date: Optional[date]) -> Optional[int]:
 
 
 def get_owned_team(db: Session, team_id: int, coach_id: int) -> models.Team:
-    team = db.query(models.Team).filter(models.Team.id == team_id).first()
-    if team is None:
+    """Compat tests: trata coach_id como usuario no-admin."""
+    user = db.query(models.User).filter(models.User.id == coach_id).first()
+    if user is None:
         raise HTTPException(status_code=404, detail="Team not found")
-    if team.coach_id != coach_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-    return team
+    return get_team_for_user(db, team_id, user)
 
 
 def coach_athletes_query(
@@ -56,11 +56,10 @@ def coach_athletes_query(
     coach_id: int,
     team_id: Optional[int] = None,
 ) -> Query:
-    query = db.query(models.Athlete).filter(models.Athlete.coach_id == coach_id)
-    if team_id is not None:
-        get_owned_team(db, team_id, coach_id)
-        query = query.filter(models.Athlete.team_id == team_id)
-    return query
+    user = db.query(models.User).filter(models.User.id == coach_id).first()
+    if user is None:
+        return db.query(models.Athlete).filter(models.Athlete.id == -1)
+    return athletes_query(db, user, team_id)
 
 
 def validate_sport_id(db: Session, sport_id: Optional[int]) -> None:
@@ -93,9 +92,13 @@ def validate_athlete_relations(
     team_id: Optional[int] = None,
     sport_id: Optional[int] = None,
     position_id: Optional[int] = None,
+    user: Optional[models.User] = None,
 ) -> None:
     if team_id is not None:
-        get_owned_team(db, team_id, coach_id)
+        if user is not None:
+            get_team_for_user(db, team_id, user)
+        else:
+            get_owned_team(db, team_id, coach_id)
     validate_sport_id(db, sport_id)
     effective_sport_id = sport_id
     if position_id is not None:
@@ -161,9 +164,13 @@ def serialize_athlete(athlete: models.Athlete, db: Session) -> schemas.AthleteRe
     )
 
 
-def athlete_query_with_relations(db: Session, coach_id: int, team_id: Optional[int] = None):
+def athlete_query_with_relations(
+    db: Session,
+    user: models.User,
+    team_id: Optional[int] = None,
+):
     return (
-        coach_athletes_query(db, coach_id, team_id)
+        athletes_query(db, user, team_id)
         .options(
             joinedload(models.Athlete.sport_ref),
             joinedload(models.Athlete.position_ref),

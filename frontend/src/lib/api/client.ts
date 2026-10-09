@@ -1,4 +1,5 @@
-import { getToken } from "@/lib/storage";
+import { notifyUnauthorized } from "@/lib/auth/unauthorized";
+import { clearToken, getToken } from "@/lib/storage";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
@@ -23,6 +24,7 @@ async function request<T>(
 ): Promise<T> {
   const url = `${BASE_URL}${endpoint}`;
   const headers = getAuthHeaders();
+  const hadAuth = Boolean(headers.Authorization);
 
   const response = await fetch(url, {
     ...options,
@@ -32,10 +34,9 @@ async function request<T>(
     },
   });
 
-  // Handle 401 Unauthorized
-  if (response.status === 401) {
-    // Optional: trigger logout logic here
-    // For now, let the caller handle it
+  if (response.status === 401 && hadAuth) {
+    clearToken();
+    notifyUnauthorized();
   }
 
   if (!response.ok) {
@@ -89,6 +90,7 @@ export async function postForm<T>(
 ): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {};
+  const hadAuth = Boolean(token);
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
@@ -102,6 +104,10 @@ export async function postForm<T>(
     },
     body: formData,
   });
+  if (response.status === 401 && hadAuth) {
+    clearToken();
+    notifyUnauthorized();
+  }
   if (!response.ok) {
     let detail: unknown;
     try {
