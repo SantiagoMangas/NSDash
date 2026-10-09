@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { EmptyStateCard } from "@/components/ui/EmptyStateCard";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import ZonesTable from "@/components/speed/ZonesTable";
@@ -9,6 +9,8 @@ import { formatDisplayDate } from "@/lib/date";
 import { formatPaceWithUnit } from "@/lib/units";
 import { formatSecondsToPace, parseApiError } from "@/lib/utils";
 import type { VelocityZone } from "@/lib/types";
+import { MetricsCollapsibleHistory } from "@/components/resistencia/metrics/MetricsCollapsibleHistory";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 const TEST_LABELS: Record<string, string> = {
   vam_2000m: "Test VAM 2000m",
@@ -16,6 +18,8 @@ const TEST_LABELS: Record<string, string> = {
   test_30_15_ift: "Test 30-15 IFT",
   yoyo_ri1: "Yo-Yo RI1",
 };
+
+const INITIAL_VISIBLE = 3;
 
 type VamTestHistoryItem = {
   id: number;
@@ -59,21 +63,36 @@ function mapZones(zones: VamZoneDetail[]): VelocityZone[] {
   }));
 }
 
+function isBandTest(testType: string) {
+  return testType === "vam_2000m" || testType === "vam_5min";
+}
+
+type Props = {
+  athleteId: number | null;
+  refreshKey?: number;
+  onDeleted?: () => void;
+  /** Dentro de “Métricas disponibles”: sin card exterior, zonas de todos los tests de banda. */
+  embeddedInMetrics?: boolean;
+};
+
 export function VamTestHistory({
   athleteId,
   refreshKey,
   onDeleted,
-}: {
-  athleteId: number | null;
-  refreshKey?: number;
-  onDeleted?: () => void;
-}) {
+  embeddedInMetrics = false,
+}: Props) {
   const [tests, setTests] = useState<VamTestHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTest, setSelectedTest] = useState<VamTestDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [loadingZonesTestId, setLoadingZonesTestId] = useState<number | null>(null);
   const [deletingTestId, setDeletingTestId] = useState<number | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const [sectionOpen, setSectionOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+
+  const shouldLoad = !embeddedInMetrics || sectionOpen;
 
   useEffect(() => {
     if (athleteId === null) {
@@ -81,15 +100,19 @@ export function VamTestHistory({
       setError(null);
       return;
     }
+    if (!shouldLoad) {
+      return;
+    }
 
     const loadHistory = async () => {
       setLoading(true);
       setError(null);
       setSelectedTest(null);
+      setShowAll(false);
       try {
         const data = (await getVamTests(athleteId)) as VamTestHistoryItem[];
         setTests(data.sort((a, b) => b.date.localeCompare(a.date)));
-      } catch (err) {
+      } catch {
         setError("No se pudo cargar el historial de tests VAM.");
       } finally {
         setLoading(false);
@@ -97,16 +120,23 @@ export function VamTestHistory({
     };
 
     loadHistory();
-  }, [athleteId, refreshKey]);
+  }, [athleteId, refreshKey, shouldLoad]);
 
   const bestTestId = useMemo(() => {
     if (tests.length === 0) return null;
     return tests.reduce((best, test) => (test.vam_kmh > best.vam_kmh ? test : best), tests[0]).id;
   }, [tests]);
 
+  const visibleTests = showAll ? tests : tests.slice(0, INITIAL_VISIBLE);
+
   const handleShowZones = async (testId: number) => {
+    if (selectedTest?.id === testId) {
+      setSelectedTest(null);
+      return;
+    }
     setSelectedTest(null);
     setDetailLoading(true);
+    setLoadingZonesTestId(testId);
     try {
       const data = (await getVamTest(testId)) as VamTestDetail;
       setSelectedTest(data);
@@ -114,18 +144,18 @@ export function VamTestHistory({
       setError("No se pudieron cargar las zonas del test.");
     } finally {
       setDetailLoading(false);
+      setLoadingZonesTestId(null);
     }
   };
 
-  const handleDelete = async (testId: number) => {
+  const handleDeleteClick = (testId: number) => {
     if (deletingTestId !== null) return;
-    if (
-      !window.confirm(
-        "¿Eliminar este test VAM? Esta acción no se puede deshacer.",
-      )
-    ) {
-      return;
-    }
+    setDeleteTargetId(testId);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (deleteTargetId === null || deletingTestId !== null) return;
+    const testId = deleteTargetId;
 
     setDeletingTestId(testId);
     setError(null);
@@ -136,6 +166,7 @@ export function VamTestHistory({
         setSelectedTest(null);
       }
       onDeleted?.();
+      setDeleteTargetId(null);
     } catch (err) {
       setError(parseApiError(err, "No se pudo eliminar el test. Intentá de nuevo."));
     } finally {
@@ -143,18 +174,43 @@ export function VamTestHistory({
     }
   };
 
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
-        <h2 className="text-lg font-semibold text-slate-900">Historial de Tests VAM</h2>
-        <p className="mt-1 text-sm text-slate-600">Listado de todos los tests registrados para este atleta.</p>
-      </div>
+  const deleteDialog = (
+    <ConfirmDialog
+      open={deleteTargetId !== null}
+      title="Eliminar test VAM"
+      description="Se borrará este test y sus datos asociados. Esta acción no se puede deshacer."
+      confirmLabel="Sí, eliminar"
+      isLoading={deletingTestId !== null}
+      onCancel={() => {
+        if (deletingTestId === null) setDeleteTargetId(null);
+      }}
+      onConfirm={() => void handleDeleteConfirm()}
+    />
+  );
+
+  const wrapperClass = embeddedInMetrics
+    ? ""
+    : "rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden";
+
+  const countLabel =
+    tests.length > 0 ? `${tests.length} test${tests.length === 1 ? "" : "s"} registrado${tests.length === 1 ? "" : "s"}` : null;
+
+  const headerBlock = embeddedInMetrics ? null : (
+    <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
+      <h2 className="text-lg font-semibold text-slate-900">Historial de Tests VAM</h2>
+      <p className="mt-1 text-sm text-slate-600">Listado de todos los tests registrados para este atleta.</p>
+    </div>
+  );
+
+  const body = (
+    <>
+      {headerBlock}
 
       {loading ? (
         <div className="p-6">
           <LoadingCard />
         </div>
-      ) : error ? (
+      ) : error && tests.length === 0 ? (
         <div className="p-6">
           <EmptyStateCard icon={<span className="text-2xl">⚠️</span>} title="Error" description={error} />
         </div>
@@ -163,88 +219,137 @@ export function VamTestHistory({
           <EmptyStateCard
             icon={<span className="text-2xl">📋</span>}
             title="Aún no hay tests registrados"
-            description="Cargá el primero desde el formulario de Test VAM."
+            description="Cargá el primero desde Evaluaciones."
           />
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm text-slate-700">
-            <thead className="bg-slate-100 text-slate-900">
-              <tr>
-                <th className="px-4 py-3">Fecha</th>
-                <th className="px-4 py-3">Tipo de Test</th>
-                <th className="px-4 py-3">VAM (km/h)</th>
-                <th className="px-4 py-3">Ritmo (min/km)</th>
-                <th className="px-4 py-3">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tests.map((test) => {
-                const isBest = test.id === bestTestId;
-                return (
-                  <tr key={test.id} className={isBest ? "bg-emerald-50" : "bg-white"}>
-                    <td className="px-4 py-3">{formatDisplayDate(test.date)}</td>
-                    <td className="px-4 py-3">{TEST_LABELS[test.test_type] ?? test.test_type}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-900">{test.vam_kmh.toFixed(2)}</td>
-                    <td className="px-4 py-3">{formatPaceWithUnit(test.ritmo_str)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {test.test_type === "vam_2000m" || test.test_type === "vam_5min" ? (
-                          <button
-                            type="button"
-                            onClick={() => handleShowZones(test.id)}
-                            disabled={detailLoading}
-                            className="rounded-full bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {detailLoading ? "Cargando..." : "Ver zonas"}
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(test.id)}
-                          disabled={deletingTestId === test.id}
-                          className="rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {deletingTestId === test.id ? "Eliminando..." : "Eliminar"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {selectedTest && (
-        <div className="border-t border-slate-200 bg-slate-50 p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-            <div>
-              <h3 className="text-base font-semibold text-slate-900">Zonas del test</h3>
-              <p className="text-sm text-slate-600">
-                {TEST_LABELS[selectedTest.test_type] ?? selectedTest.test_type} · {formatDisplayDate(selectedTest.date)}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelectedTest(null)}
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
-            >
-              Cerrar panel
-            </button>
-          </div>
-          {selectedTest.test_type === "vam_2000m" || selectedTest.test_type === "vam_5min" ? (
-            <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <ZonesTable zones={mapZones(selectedTest.zonas)} />
-            </div>
-          ) : (
-            <div className="rounded-3xl border border-slate-200 bg-white shadow-sm p-6">
-              <p className="text-sm text-slate-600">Las zonas no están disponibles para este tipo de test.</p>
+        <>
+          {error && (
+            <div className="mx-4 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {error}
             </div>
           )}
-        </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm text-slate-700">
+              <thead className="bg-slate-100 text-slate-900">
+                <tr>
+                  <th className="px-4 py-3">Fecha</th>
+                  <th className="px-4 py-3">Tipo de test</th>
+                  <th className="px-4 py-3">VAM (km/h)</th>
+                  <th className="px-4 py-3">Ritmo (m/km)</th>
+                  <th className="px-4 py-3">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleTests.map((test) => {
+                  const isBest = test.id === bestTestId;
+                  const zonesOpen = selectedTest?.id === test.id;
+                  return (
+                    <Fragment key={test.id}>
+                      <tr className={isBest ? "bg-emerald-50" : "bg-white"}>
+                        <td className="px-4 py-3">{formatDisplayDate(test.date)}</td>
+                        <td className="px-4 py-3">{TEST_LABELS[test.test_type] ?? test.test_type}</td>
+                        <td className="px-4 py-3 font-semibold text-slate-900">{test.vam_kmh.toFixed(2)}</td>
+                        <td className="px-4 py-3">{formatPaceWithUnit(test.ritmo_str)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {isBandTest(test.test_type) ? (
+                              <button
+                                type="button"
+                                onClick={() => handleShowZones(test.id)}
+                                disabled={detailLoading && !zonesOpen}
+                                className="rounded-full bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {detailLoading && !zonesOpen
+                                  ? "Cargando..."
+                                  : zonesOpen
+                                    ? "Ocultar zonas"
+                                    : "Ver zonas"}
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteClick(test.id)}
+                              disabled={deletingTestId === test.id}
+                              className="rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {deletingTestId === test.id ? "Eliminando..." : "Eliminar"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {zonesOpen && selectedTest && (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-4 bg-slate-50">
+                            <div className="mb-3">
+                              <h3 className="text-sm font-semibold text-slate-900">Zonas del test</h3>
+                              <p className="text-xs text-slate-600">
+                                {TEST_LABELS[selectedTest.test_type] ?? selectedTest.test_type} ·{" "}
+                                {formatDisplayDate(selectedTest.date)}
+                              </p>
+                            </div>
+                            {isBandTest(selectedTest.test_type) ? (
+                              <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                <ZonesTable zones={mapZones(selectedTest.zonas)} compact />
+                              </div>
+                            ) : (
+                              <p className="text-sm text-slate-600">
+                                Las zonas no están disponibles para este tipo de test.
+                              </p>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                      {detailLoading && loadingZonesTestId === test.id && !zonesOpen && (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-2 bg-slate-50 text-xs text-slate-500">
+                            Cargando zonas…
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {tests.length > INITIAL_VISIBLE && (
+            <div className="border-t border-slate-200 px-4 py-3 bg-slate-50">
+              <button
+                type="button"
+                onClick={() => setShowAll((prev) => !prev)}
+                className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+              >
+                {showAll ? "Ver menos" : `Ver más (${tests.length - INITIAL_VISIBLE} restantes)`}
+              </button>
+            </div>
+          )}
+        </>
       )}
-    </div>
+    </>
+  );
+
+  if (embeddedInMetrics) {
+    return (
+      <>
+      {deleteDialog}
+      <MetricsCollapsibleHistory
+        title="Historial de tests VAM"
+        subtitle={'Usá "Ver zonas" en tests de VAM 5\' o 2000 m.'}
+        open={sectionOpen}
+        onToggle={() => setSectionOpen((prev) => !prev)}
+        countLabel={countLabel}
+      >
+        {body}
+      </MetricsCollapsibleHistory>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {deleteDialog}
+      <div className={wrapperClass}>{body}</div>
+    </>
   );
 }

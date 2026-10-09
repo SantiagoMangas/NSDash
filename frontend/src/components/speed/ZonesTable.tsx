@@ -13,17 +13,26 @@ const ZONE_ROW_CLASSES: Record<string, string> = {
 
 type Props = {
   zones: VelocityZone[];
+  compact?: boolean;
 };
 
-export default function ZonesTable({ zones }: Props) {
+export default function ZonesTable({ zones, compact = false }: Props) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
-        <h2 className="text-lg font-semibold text-slate-900">Cuadro de Zonas</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          8 zonas de entrenamiento calculadas sobre el mejor test VAM disponible.
-        </p>
-      </div>
+    <div
+      className={
+        compact
+          ? "overflow-hidden"
+          : "rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+      }
+    >
+      {!compact && (
+        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
+          <h2 className="text-lg font-semibold text-slate-900">Cuadro de zonas</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            8 zonas de entrenamiento calculadas sobre el test VAM de referencia.
+          </p>
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm text-slate-700">
           <thead className="bg-slate-100 text-slate-900">
@@ -31,8 +40,8 @@ export default function ZonesTable({ zones }: Props) {
               <th className="px-4 py-3">Zona</th>
               <th className="px-4 py-3">Intensidad</th>
               <th className="px-4 py-3">% VAM</th>
-              <th className="px-4 py-3">Ritmo mín (min/km)</th>
-              <th className="px-4 py-3">Ritmo máx (min/km)</th>
+              <th className="px-4 py-3">Ritmo mín (m/km)</th>
+              <th className="px-4 py-3">Ritmo máx (m/km)</th>
               <th className="px-4 py-3">vel. mín (km/h)</th>
               <th className="px-4 py-3">vel. máx (km/h)</th>
             </tr>

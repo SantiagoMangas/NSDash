@@ -2454,6 +2454,16 @@ def create_rsa_fatigue_test(
     return build_rsa_fatigue_test_response(db, db_rsa_test)
 
 
+@app.get("/rsa-fatigue-tests/{test_id}", response_model=schemas.RsaFatigueTestResponse)
+def get_rsa_fatigue_test(
+    test_id: int,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(auth.get_current_user),
+) -> dict:
+    test = get_owned_rsa_fatigue_test(test_id, db, current_user)
+    return build_rsa_fatigue_test_response(db, test)
+
+
 @app.get("/athletes/{athlete_id}/rsa-fatigue-tests", response_model=list[schemas.RsaFatigueTestSummary])
 def list_rsa_fatigue_tests(
     athlete_id: int,
@@ -2477,7 +2487,14 @@ def list_rsa_fatigue_tests(
             "id": test.id,
             "athlete_id": test.athlete_id,
             "date": test.date,
+            "distancia_sprint_m": test.distancia_sprint_m,
+            "pausa_s": test.pausa_s,
             "cantidad_sprints": test.cantidad_sprints,
+            "tiempos": get_rsa_sprint_times(db, test.id),
+            "mejor_tiempo": test.mejor_tiempo,
+            "peor_tiempo": test.peor_tiempo,
+            "tiempo_total": test.tiempo_total,
+            "tiempo_ideal": test.tiempo_ideal,
             "indice_fatiga_pct": test.indice_fatiga_pct,
             "categoria": test.categoria,
         }

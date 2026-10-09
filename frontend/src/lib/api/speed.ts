@@ -168,8 +168,51 @@ export async function getNationalTableGroups(
   return get(`/national-table/groups${suffix}`, { cache: "no-store" });
 }
 
-export async function getRsaFatigueTests(athleteId: number): Promise<any> {
-  return get(`/athletes/${athleteId}/rsa-fatigue-tests`, { cache: "no-store" });
+import type { NormalizedRsaFatigueTest } from "@/lib/rsaFatigue";
+
+export type RsaFatigueTestSummary = NormalizedRsaFatigueTest;
+
+export async function getRsaFatigueTests(athleteId: number): Promise<RsaFatigueTestSummary[]> {
+  const { normalizeRsaFatigueSummary } = await import("@/lib/rsaFatigue");
+  const { mergeRsaFatigueMetaCache } = await import("@/lib/rsaFatigueMetaCache");
+  const data = await get(`/athletes/${athleteId}/rsa-fatigue-tests`, {
+    cache: "no-store",
+  });
+  if (!Array.isArray(data)) return [];
+  const normalized = data
+    .map((item) => normalizeRsaFatigueSummary(item))
+    .filter((item): item is RsaFatigueTestSummary => item !== null);
+  return mergeRsaFatigueMetaCache(athleteId, normalized);
+}
+
+export type RsaFatigueTestDetail = RsaFatigueTestSummary & {
+  tiempos: number[];
+  notes: string | null;
+  tiempo_medio: number;
+};
+
+export async function getRsaFatigueTest(testId: number): Promise<RsaFatigueTestDetail> {
+  const { normalizeRsaFatigueSummary } = await import("@/lib/rsaFatigue");
+  const data = await get<unknown>(`/rsa-fatigue-tests/${testId}`, { cache: "no-store" });
+  const base = normalizeRsaFatigueSummary(data);
+  if (!base) {
+    throw new Error("Respuesta de test RSA inválida");
+  }
+  const o = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  return {
+    ...base,
+    tiempos: base.tiempos ?? [],
+    notes: typeof o.notes === "string" ? o.notes : null,
+    tiempo_medio:
+      finiteNumber(o.tiempo_medio) ??
+      (base.cantidad_sprints > 0 ? base.tiempo_total / base.cantidad_sprints : 0),
+  };
+}
+
+function finiteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 export async function createRsaFatigueTest(
@@ -180,7 +223,8 @@ export async function createRsaFatigueTest(
   pausa_s: number | null,
   notes: string | null,
 ): Promise<any> {
-  return post("/rsa-fatigue-tests", {
+  const { rememberRsaFatigueTestMeta } = await import("@/lib/rsaFatigueMetaCache");
+  const response = await post("/rsa-fatigue-tests", {
     athlete_id: athleteId,
     date,
     tiempos,
@@ -188,6 +232,8 @@ export async function createRsaFatigueTest(
     pausa_s,
     notes,
   });
+  rememberRsaFatigueTestMeta(response, athleteId);
+  return response;
 }
 
 export async function deleteSpeedTest(testId: number): Promise<{ detail: string }> {

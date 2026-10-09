@@ -2,7 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRsaFatigueTest } from "@/lib/api/speed";
-import { formatDisplayDate, getTodayDate, isFutureDate } from "@/lib/date";
+import { getTodayDate, isFutureDate } from "@/lib/date";
+import { calculateRsaFatigueMetrics } from "@/lib/rsaFatigue";
 import { parseApiError } from "@/lib/utils";
 import { RsaFatiguePreviewCard } from "@/components/speed/RsaFatiguePreviewCard";
 
@@ -13,17 +14,7 @@ interface Props {
   onSuccess?: () => void;
 }
 
-interface RsaFatiguePreview {
-  cantidad_sprints: number;
-  mejor_tiempo: number;
-  peor_tiempo: number;
-  tiempo_total: number;
-  tiempo_ideal: number;
-  indice_fatiga_pct: number;
-  categoria: string;
-}
-
-interface RsaFatigueTestResponse extends RsaFatiguePreview {
+interface RsaFatigueTestResponse {
   id: number;
   athlete_id: number;
   date: string;
@@ -31,57 +22,25 @@ interface RsaFatigueTestResponse extends RsaFatiguePreview {
   distancia_sprint_m: number | null;
   pausa_s: number | null;
   notes: string | null;
+  cantidad_sprints: number;
+  mejor_tiempo: number;
+  peor_tiempo: number;
+  tiempo_total: number;
+  tiempo_ideal: number;
   tiempo_medio: number;
-  velocidad_mejor_kmh: number | null;
-  velocidad_peor_kmh: number | null;
-  velocidad_media_kmh: number | null;
+  indice_fatiga_pct: number;
+  categoria: string;
 }
 
 const DESCRIPTION = {
   title: "Test de Índice de Fatiga (RSA-IFF)",
   description:
-    "Ingresá los tiempos de cada sprint en segundos, en orden de realización. Se necesitan al menos 2 sprints. La app calcula el índice de fatiga y la categoría (Excelente, Bueno, Regular o Malo).",
+    "Completá fecha, distancia del sprint y pausa entre repeticiones. Luego ingresá los tiempos de cada sprint en segundos (mínimo 2). La app calcula el índice de fatiga y la categoría.",
 };
 
 const MIN_SPRINTS = 2;
 
-function categorizeFatigueIndex(indice_fatiga_pct: number): string {
-  if (indice_fatiga_pct < 10) return "Excelente";
-  if (indice_fatiga_pct < 15) return "Bueno";
-  if (indice_fatiga_pct < 20) return "Regular";
-  return "Malo";
-}
-
-function calculateRsaFatiguePreview(tiempos: number[]): RsaFatiguePreview | null {
-  if (tiempos.length < MIN_SPRINTS) {
-    return null;
-  }
-
-  for (const tiempo of tiempos) {
-    if (!Number.isFinite(tiempo) || tiempo <= 0) {
-      return null;
-    }
-  }
-
-  const cantidad_sprints = tiempos.length;
-  const mejor_tiempo = Math.min(...tiempos);
-  const peor_tiempo = Math.max(...tiempos);
-  const tiempo_total = tiempos.reduce((sum, tiempo) => sum + tiempo, 0);
-  const tiempo_ideal = mejor_tiempo * cantidad_sprints;
-  const indice_fatiga_pct = (tiempo_total / tiempo_ideal) * 100 - 100;
-
-  return {
-    cantidad_sprints,
-    mejor_tiempo: Math.round(mejor_tiempo * 100) / 100,
-    peor_tiempo: Math.round(peor_tiempo * 100) / 100,
-    tiempo_total: Math.round(tiempo_total * 100) / 100,
-    tiempo_ideal: Math.round(tiempo_ideal * 100) / 100,
-    indice_fatiga_pct: Math.round(indice_fatiga_pct * 100) / 100,
-    categoria: categorizeFatigueIndex(indice_fatiga_pct),
-  };
-}
-
-function parseOptionalPositive(raw: string): number | null {
+function parseRequiredPositive(raw: string): number | null {
   const trimmed = raw.trim();
   if (trimmed === "") return null;
   const value = Number(trimmed.replace(",", "."));
@@ -89,20 +48,14 @@ function parseOptionalPositive(raw: string): number | null {
 }
 
 function parseSprintInputs(values: string[]): number[] | null {
-  if (values.length < MIN_SPRINTS) {
-    return null;
-  }
+  if (values.length < MIN_SPRINTS) return null;
 
   const parsed: number[] = [];
   for (const value of values) {
     const trimmed = value.trim();
-    if (trimmed === "") {
-      return null;
-    }
+    if (trimmed === "") return null;
     const numeric = Number(trimmed.replace(",", "."));
-    if (!Number.isFinite(numeric) || numeric <= 0) {
-      return null;
-    }
+    if (!Number.isFinite(numeric) || numeric <= 0) return null;
     parsed.push(numeric);
   }
 
@@ -118,7 +71,6 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [createdTest, setCreatedTest] = useState<RsaFatigueTestResponse | null>(null);
-  const [showResultCard, setShowResultCard] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const successTimeoutRef = useRef<number | null>(null);
 
@@ -126,12 +78,36 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
   const maxDate = getTodayDate();
 
   const parsedTiempos = useMemo(() => parseSprintInputs(sprintTimes), [sprintTimes]);
-  const preview = useMemo(
-    () => (parsedTiempos ? calculateRsaFatiguePreview(parsedTiempos) : null),
+  const parsedDistancia = useMemo(() => parseRequiredPositive(distancia_sprint_m), [distancia_sprint_m]);
+  const parsedPausa = useMemo(() => parseRequiredPositive(pausa_s), [pausa_s]);
+
+  const previewMetrics = useMemo(
+    () => (parsedTiempos ? calculateRsaFatigueMetrics(parsedTiempos) : null),
     [parsedTiempos],
   );
 
-  const canSubmit = parsedTiempos !== null && parsedTiempos.length >= MIN_SPRINTS;
+  const canSubmit =
+    parsedTiempos !== null &&
+    parsedTiempos.length >= MIN_SPRINTS &&
+    parsedDistancia !== null &&
+    parsedPausa !== null;
+
+  const previewCardData = useMemo(() => {
+    if (!previewMetrics || parsedDistancia === null || parsedPausa === null) return null;
+    return {
+      date,
+      cantidad_sprints: previewMetrics.cantidad_sprints,
+      tiempos: parsedTiempos ?? [],
+      distancia_sprint_m: parsedDistancia,
+      pausa_s: parsedPausa,
+      mejor_tiempo: previewMetrics.mejor_tiempo,
+      peor_tiempo: previewMetrics.peor_tiempo,
+      tiempo_total: previewMetrics.tiempo_total,
+      tiempo_ideal: previewMetrics.tiempo_ideal,
+      indice_fatiga_pct: previewMetrics.indice_fatiga_pct,
+      categoria: previewMetrics.categoria,
+    };
+  }, [previewMetrics, parsedDistancia, parsedPausa, parsedTiempos, date]);
 
   useEffect(() => {
     return () => {
@@ -171,7 +147,6 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
     setError(null);
     setSuccess(null);
     setCreatedTest(null);
-    setShowResultCard(false);
 
     if (!athleteId) {
       setError("Seleccioná un atleta antes de registrar un test RSA.");
@@ -188,16 +163,13 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
       return;
     }
 
-    const parsedDistancia = parseOptionalPositive(distancia_sprint_m);
-    const parsedPausa = parseOptionalPositive(pausa_s);
-
-    if (distancia_sprint_m.trim() !== "" && parsedDistancia === null) {
-      setError("Ingresá una distancia de sprint válida en metros.");
+    if (parsedDistancia === null) {
+      setError("Ingresá la distancia del sprint en metros.");
       return;
     }
 
-    if (pausa_s.trim() !== "" && parsedPausa === null) {
-      setError("Ingresá una pausa válida en segundos.");
+    if (parsedPausa === null) {
+      setError("Ingresá la pausa entre sprints en segundos.");
       return;
     }
 
@@ -250,19 +222,47 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
         <p className="mt-1 text-blue-700">{DESCRIPTION.description}</p>
       </div>
 
-      <div>
-        <label htmlFor="rsa-test-date" className="block text-xs text-slate-500 mb-1">
-          Fecha
-        </label>
-        <input
-          id="rsa-test-date"
-          type="date"
-          value={date}
-          max={maxDate}
-          onChange={(event) => setDate(event.target.value)}
-          required
-          className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-        />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div>
+          <label htmlFor="rsa-test-date" className="block text-xs text-slate-500 mb-1">
+            Fecha
+          </label>
+          <input
+            id="rsa-test-date"
+            type="date"
+            value={date}
+            max={maxDate}
+            onChange={(event) => setDate(event.target.value)}
+            required
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Distancia del sprint (m)</label>
+          <input
+            type="number"
+            min="0"
+            step="any"
+            required
+            value={distancia_sprint_m}
+            onChange={(event) => setDistancia_sprint_m(event.target.value)}
+            placeholder="Ej: 20"
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Pausa entre sprints (s)</label>
+          <input
+            type="number"
+            min="0"
+            step="any"
+            required
+            value={pausa_s}
+            onChange={(event) => setPausa_s(event.target.value)}
+            placeholder="Ej: 20"
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+          />
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -304,49 +304,12 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
         </button>
       </div>
 
-      {preview && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-4 space-y-2">
-          <p className="text-sm font-medium text-green-800">Vista previa del resultado</p>
-          <div className="grid gap-2 sm:grid-cols-2 text-sm text-green-700">
-            <span>Sprints: <strong>{preview.cantidad_sprints}</strong></span>
-            <span>Mejor tiempo: <strong>{preview.mejor_tiempo.toFixed(2)} s</strong></span>
-            <span>Peor tiempo: <strong>{preview.peor_tiempo.toFixed(2)} s</strong></span>
-            <span>Tiempo total: <strong>{preview.tiempo_total.toFixed(2)} s</strong></span>
-            <span>Tiempo ideal: <strong>{preview.tiempo_ideal.toFixed(2)} s</strong></span>
-            <span>
-              Índice de fatiga: <strong>{preview.indice_fatiga_pct.toFixed(2)}%</strong>
-            </span>
-            <span className="sm:col-span-2">
-              Categoría: <strong>{preview.categoria}</strong>
-            </span>
-          </div>
+      {previewCardData && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-slate-700">Vista previa del resultado</p>
+          <RsaFatiguePreviewCard test={previewCardData} />
         </div>
       )}
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="block text-xs text-slate-500 mb-2">Distancia del sprint (m, opcional)</label>
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={distancia_sprint_m}
-            onChange={(event) => setDistancia_sprint_m(event.target.value)}
-            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-slate-500 mb-2">Pausa entre sprints (s, opcional)</label>
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={pausa_s}
-            onChange={(event) => setPausa_s(event.target.value)}
-            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-          />
-        </div>
-      </div>
 
       <div>
         <label className="block text-xs text-slate-500 mb-2">Notas (opcional)</label>
@@ -368,7 +331,7 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
 
       {!canSubmit && (
         <p className="text-xs text-slate-500">
-          Completá al menos 2 tiempos de sprint válidos para habilitar el envío.
+          Completá fecha, distancia, pausa y al menos 2 tiempos de sprint válidos para habilitar el envío.
         </p>
       )}
 
@@ -385,29 +348,23 @@ export function RsaFatigueTestForm({ athleteId, authToken, embedded = false, onS
       )}
 
       {createdTest && (
-        <div className="space-y-3">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 space-y-1">
-            <p className="font-medium text-slate-900">Resultado del test registrado</p>
-            <p>Fecha: {formatDisplayDate(createdTest.date)}</p>
-            <p>Sprints: {createdTest.cantidad_sprints}</p>
-            <p>Mejor tiempo: {createdTest.mejor_tiempo.toFixed(2)} s</p>
-            <p>Peor tiempo: {createdTest.peor_tiempo.toFixed(2)} s</p>
-            <p>Tiempo medio: {createdTest.tiempo_medio.toFixed(2)} s</p>
-            <p>Tiempo total: {createdTest.tiempo_total.toFixed(2)} s</p>
-            <p>Tiempo ideal: {createdTest.tiempo_ideal.toFixed(2)} s</p>
-            <p>Índice de fatiga: {createdTest.indice_fatiga_pct.toFixed(2)}%</p>
-            <p>Categoría: {createdTest.categoria}</p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setShowResultCard((prev) => !prev)}
-            className="inline-flex items-center justify-center rounded-2xl border border-indigo-200 bg-indigo-50 px-5 py-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
-          >
-            {showResultCard ? "Ocultar vista previa" : "Vista previa"}
-          </button>
-
-          {showResultCard ? <RsaFatiguePreviewCard test={createdTest} /> : null}
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-slate-700">Resultado registrado</p>
+          <RsaFatiguePreviewCard
+            test={{
+              date: createdTest.date,
+              cantidad_sprints: createdTest.cantidad_sprints,
+              tiempos: createdTest.tiempos,
+              distancia_sprint_m: createdTest.distancia_sprint_m,
+              pausa_s: createdTest.pausa_s,
+              mejor_tiempo: createdTest.mejor_tiempo,
+              peor_tiempo: createdTest.peor_tiempo,
+              tiempo_total: createdTest.tiempo_total,
+              tiempo_ideal: createdTest.tiempo_ideal,
+              indice_fatiga_pct: createdTest.indice_fatiga_pct,
+              categoria: createdTest.categoria,
+            }}
+          />
         </div>
       )}
     </form>

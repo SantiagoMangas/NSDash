@@ -150,7 +150,7 @@ export default function VelocityIntervalDashboard({ table }: Props) {
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 tracking-[0.18em]">
-                    Ritmo <span className="normal-case">min/km</span>
+                    Ritmo <span className="normal-case">m/km</span>
                   </p>
                   <p className="mt-1 text-xl font-semibold text-slate-900">
                     {card.stats.minPace && card.stats.maxPace ? `${card.stats.minPace} - ${card.stats.maxPace}` : "-"}
@@ -190,7 +190,7 @@ export default function VelocityIntervalDashboard({ table }: Props) {
                   {stats.minKmh !== null ? `${stats.minKmh.toFixed(2)} - ${stats.maxKmh?.toFixed(2)}` : "-"}
                 </p>
                 <p className="mt-4 text-sm text-slate-600">
-                  Ritmo <span className="normal-case">min/km</span>
+                  Ritmo <span className="normal-case">m/km</span>
                 </p>
                 <p className="mt-1 text-xl font-semibold text-slate-900">
                   {stats.minPace && stats.maxPace ? `${stats.minPace} - ${stats.maxPace}` : "-"}

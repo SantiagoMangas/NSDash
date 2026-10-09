@@ -667,7 +667,14 @@ class RsaFatigueTestSummary(BaseModel):
     id: int
     athlete_id: int
     date: Date
+    distancia_sprint_m: Optional[float] = None
+    pausa_s: Optional[float] = None
     cantidad_sprints: int
+    tiempos: list[float] = []
+    mejor_tiempo: float = 0.0
+    peor_tiempo: float = 0.0
+    tiempo_total: float = 0.0
+    tiempo_ideal: float = 0.0
     indice_fatiga_pct: float
     categoria: str
 
