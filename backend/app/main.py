@@ -355,17 +355,11 @@ def login(login_request: schemas.LoginRequest, db: Session = Depends(get_db)) ->
 
 
 @app.post("/auth/register", response_model=schemas.UserResponse)
-def register(register_request: schemas.LoginRequest, db: Session = Depends(get_db)) -> models.User:
-    # Create and save new user
-    new_user = models.User(
-        email=register_request.email,
-        password_hash=auth.hash_password(register_request.password),
-        is_admin=True,
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return new_user
+def register(
+    _register_request: schemas.LoginRequest,
+    _db: Session = Depends(get_db),
+) -> models.User:
+    raise HTTPException(status_code=403, detail="El registro público está deshabilitado.")
 
 
 @app.post("/teams", response_model=schemas.TeamResponse)
