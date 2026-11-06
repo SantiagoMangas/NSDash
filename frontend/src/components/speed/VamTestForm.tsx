@@ -2,8 +2,14 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createVamTest, getYoyoLevels } from "@/lib/api/vam";
-import { formatPaceWithUnit, paceSecondsFromKmh } from "@/lib/units";
+import {
+  compactFieldLabelClassName,
+  compactFieldWrapClassName,
+  compactFieldsRowClassName,
+  compactInputClassName,
+} from "@/lib/compactForm";
 import { formatDisplayDate, getTodayDate, isFutureDate } from "@/lib/date";
+import { formatPaceWithUnit, paceSecondsFromKmh } from "@/lib/units";
 import { formatSecondsToPace, parseDurationParts } from "@/lib/utils";
 
 type VamTestType = "vam_2000m" | "vam_5min" | "test_30_15_ift" | "yoyo_ri1";
@@ -138,6 +144,8 @@ export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = fa
 
   const fieldLabels = useMemo(() => buildFieldLabels(testType), [testType]);
   const description = TEST_DESCRIPTIONS[testType];
+  const isCompactPrimaryRow =
+    testType === "test_30_15_ift" || testType === "yoyo_ri1";
   const isAuthenticated = Boolean(authToken);
   const maxDate = getTodayDate();
 
@@ -391,103 +399,148 @@ export function VamTestForm({ athleteId, authToken, fixedTestType, embedded = fa
         <p className="mt-1 text-blue-700">{description.description}</p>
       </div>
 
-      <div>
-        <label htmlFor="vam-test-date" className="block text-xs text-slate-500 mb-1">
-          Fecha
-        </label>
-        <input
-          id="vam-test-date"
-          type="date"
-          value={date}
-          max={maxDate}
-          onChange={(event) => setDate(event.target.value)}
-          required
-          className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-        />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="block text-xs text-slate-500 mb-2">{fieldLabels.value1}</label>
-          {timeFieldRole === "value1" ? (
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min="0"
-                step="1"
-                inputMode="numeric"
-                value={timeMinutes}
-                onChange={(event) => setTimeMinutes(event.target.value)}
-                aria-label="Minutos"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-              />
-              <span className="text-sm text-slate-500">min</span>
-              <input
-                type="number"
-                min="0"
-                max="59"
-                step="1"
-                inputMode="numeric"
-                value={timeSeconds}
-                onChange={(event) => setTimeSeconds(event.target.value)}
-                aria-label="Segundos"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-              />
-              <span className="text-sm text-slate-500">seg</span>
-            </div>
-          ) : (
+      {isCompactPrimaryRow ? (
+        <div className={compactFieldsRowClassName()}>
+          <div className={compactFieldWrapClassName("date")}>
+            <label htmlFor="vam-test-date" className={compactFieldLabelClassName()}>
+              Fecha
+            </label>
+            <input
+              id="vam-test-date"
+              type="date"
+              value={date}
+              max={maxDate}
+              onChange={(event) => setDate(event.target.value)}
+              required
+              className={compactInputClassName()}
+            />
+          </div>
+          <div className={compactFieldWrapClassName("numeric")}>
+            <label className={compactFieldLabelClassName()}>{fieldLabels.value1}</label>
             <input
               type="number"
               min="0"
               step="any"
               value={value1}
               onChange={(event) => setValue1(event.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              className={compactInputClassName()}
             />
-          )}
-        </div>
-        {fieldLabels.value2 && (
-          <div>
-            <label className="block text-xs text-slate-500 mb-2">{fieldLabels.value2}</label>
-            {timeFieldRole === "value2" ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  inputMode="numeric"
-                  value={timeMinutes}
-                  onChange={(event) => setTimeMinutes(event.target.value)}
-                  aria-label="Minutos"
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                />
-                <span className="text-sm text-slate-500">min</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="59"
-                  step="1"
-                  inputMode="numeric"
-                  value={timeSeconds}
-                  onChange={(event) => setTimeSeconds(event.target.value)}
-                  aria-label="Segundos"
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                />
-                <span className="text-sm text-slate-500">seg</span>
-              </div>
-            ) : (
+          </div>
+          {fieldLabels.value2 && (
+            <div className={compactFieldWrapClassName("numeric")}>
+              <label className={compactFieldLabelClassName()}>{fieldLabels.value2}</label>
               <input
                 type="number"
                 min="0"
                 step="any"
                 value={value2}
                 onChange={(event) => setValue2(event.target.value)}
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                className={compactInputClassName()}
               />
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div>
+            <label htmlFor="vam-test-date" className={compactFieldLabelClassName()}>
+              Fecha
+            </label>
+            <input
+              id="vam-test-date"
+              type="date"
+              value={date}
+              max={maxDate}
+              onChange={(event) => setDate(event.target.value)}
+              required
+              className={`${compactInputClassName()} max-w-xs`}
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={compactFieldLabelClassName()}>{fieldLabels.value1}</label>
+              {timeFieldRole === "value1" ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputMode="numeric"
+                    value={timeMinutes}
+                    onChange={(event) => setTimeMinutes(event.target.value)}
+                    aria-label="Minutos"
+                    className={compactInputClassName()}
+                  />
+                  <span className="text-sm text-slate-500">min</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    step="1"
+                    inputMode="numeric"
+                    value={timeSeconds}
+                    onChange={(event) => setTimeSeconds(event.target.value)}
+                    aria-label="Segundos"
+                    className={compactInputClassName()}
+                  />
+                  <span className="text-sm text-slate-500">seg</span>
+                </div>
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={value1}
+                  onChange={(event) => setValue1(event.target.value)}
+                  className={compactInputClassName()}
+                />
+              )}
+            </div>
+            {fieldLabels.value2 && (
+              <div>
+                <label className={compactFieldLabelClassName()}>{fieldLabels.value2}</label>
+                {timeFieldRole === "value2" ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      inputMode="numeric"
+                      value={timeMinutes}
+                      onChange={(event) => setTimeMinutes(event.target.value)}
+                      aria-label="Minutos"
+                      className={compactInputClassName()}
+                    />
+                    <span className="text-sm text-slate-500">min</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      step="1"
+                      inputMode="numeric"
+                      value={timeSeconds}
+                      onChange={(event) => setTimeSeconds(event.target.value)}
+                      aria-label="Segundos"
+                      className={compactInputClassName()}
+                    />
+                    <span className="text-sm text-slate-500">seg</span>
+                  </div>
+                ) : (
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={value2}
+                    onChange={(event) => setValue2(event.target.value)}
+                    className={compactInputClassName()}
+                  />
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
+        </>
+      )}
 
       {preview && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-4">
