@@ -139,11 +139,8 @@ export function SpeedTestReferenceSelector({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0 flex-1">
           <label htmlFor="speed-test-reference" className="block text-sm font-medium text-slate-800">
-            Referencia Tempo / RST / SIT
+            Test de velocidad para Tempo / RST / SIT
           </label>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Elegí qué test de velocidad usar para calcular Tempo Run, RST y SIT.
-          </p>
           <select
             id="speed-test-reference"
             value={selectedValue}

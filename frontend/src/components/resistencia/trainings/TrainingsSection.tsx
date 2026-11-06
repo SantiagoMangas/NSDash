@@ -43,17 +43,13 @@ export function TrainingsSection({
     null;
 
   const speedTestTable = dashboard?.interval_tables.from_speed_test ?? null;
-  const speedReferenceKmh = speedTestTable?.reference_kmh ?? null;
 
   const hasAnyTest =
     hiitReferenceTable !== null || masReferenceTable !== null || speedTestTable !== null;
 
   return (
     <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-      <h2 className="text-base font-semibold text-slate-700 mb-1">Entrenamientos</h2>
-      <p className="text-xs text-slate-400 mb-4">
-        Prescripciones basadas en la VAM del atleta y los cuadros de intervalos existentes.
-      </p>
+      <h2 className="text-base font-semibold text-slate-700 mb-4">Entrenamientos</h2>
 
       {loading ? (
         <LoadingCard />
@@ -65,10 +61,25 @@ export function TrainingsSection({
         </div>
       ) : (
         <div className="space-y-8">
+          <TrainingTablesSection intervalTables={dashboard.interval_tables} />
+
+          {speedTestTable ? (
+            <div className="space-y-4">
+              <SpeedTestReferenceSelector
+                athleteId={athleteId}
+                preferredSpeedTestId={dashboard.preferred_speed_test_id}
+                speedTestReferenceId={dashboard.speed_test_reference_id}
+                refreshKey={refreshKey}
+                onUpdated={onDashboardRefresh}
+              />
+              <RecommendedTrainingCards speedTestTable={speedTestTable} />
+            </div>
+          ) : null}
+
           <div className="space-y-3">
             <div className="mb-1">
               <h3 className="text-sm font-semibold text-slate-800">Calculadoras de sesión</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Armá el entrenamiento del día. Las tablas de zonas y VAM quedan abajo.</p>
+              <p className="text-xs text-slate-400 mt-0.5">Armá el entrenamiento del día.</p>
             </div>
             <EvaluationAccordion title="HIIT Corto">
               <HiitCortoForm hiitReferenceTable={hiitReferenceTable} />
@@ -89,21 +100,6 @@ export function TrainingsSection({
               <RsaSessionForm speedTestTable={speedTestTable} />
             </EvaluationAccordion>
           </div>
-
-          <RecommendedTrainingCards
-            speedReferenceKmh={speedReferenceKmh}
-            speedTestTable={speedTestTable}
-            beforeSpeedCards={
-              <SpeedTestReferenceSelector
-                athleteId={athleteId}
-                preferredSpeedTestId={dashboard.preferred_speed_test_id}
-                speedTestReferenceId={dashboard.speed_test_reference_id}
-                refreshKey={refreshKey}
-                onUpdated={onDashboardRefresh}
-              />
-            }
-          />
-          <TrainingTablesSection intervalTables={dashboard.interval_tables} />
         </div>
       )}
     </section>

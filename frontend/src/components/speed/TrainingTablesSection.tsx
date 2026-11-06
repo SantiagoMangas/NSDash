@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { IntervalRowsTable } from "@/components/speed/IntervalRowsTable";
 import type { IntervalRow, IntervalTable } from "@/lib/types";
 
@@ -20,9 +20,7 @@ const SOURCE_LABELS: Record<SourceKey, string> = {
   yoyo: "Yo-Yo RI1",
 };
 
-/** HIIT / HIIT Continuos: VAM → 30-15 → Yo-Yo */
 const HIIT_PRIORITY: SourceKey[] = ["vam", "30_15", "yoyo"];
-/** MAS Training: 30-15 → Yo-Yo → VAM */
 const MAS_PRIORITY: SourceKey[] = ["30_15", "yoyo", "vam"];
 
 const HIIT_CARDS = [
@@ -32,7 +30,6 @@ const HIIT_CARDS = [
     subtitle: "10-30 seg",
     badge: "90 – 110% VAM",
     badgeColor: "bg-amber-50 text-amber-800",
-    ratio: "1:2 / 1:3 / 1:4",
   },
   {
     id: "fit_largo" as const,
@@ -40,15 +37,6 @@ const HIIT_CARDS = [
     subtitle: "1-4 min",
     badge: "80 – 95% VAM",
     badgeColor: "bg-green-50 text-green-800",
-    ratio: "1:1 / 1:2",
-  },
-  {
-    id: "mixto" as const,
-    title: "HIIT Mixto",
-    subtitle: "30 seg / 3-5 min",
-    badge: "85 – 100% VAM",
-    badgeColor: "bg-orange-50 text-orange-800",
-    ratio: "1:2 / 1:3 / 1:4",
   },
 ];
 
@@ -56,26 +44,23 @@ const MAS_GROUPS = [
   {
     range: [105, 110] as const,
     title: "105 – 110% MAS",
-    ratio: "2:1 / 1:1",
-    options: ["1'×30\" / 8-10'", "30\"×30\" / 8-10'", "2'×1' / 12-15'"],
     headerBg: "bg-green-50",
     headerText: "text-green-900",
+    borderColor: "border-green-100",
   },
   {
     range: [115, 120] as const,
     title: "115 – 120% MAS",
-    ratio: "2:1 / 1:1 / 1:2",
-    options: ["20\"×10\" / 5'", "15\"×15\" / 5'", "20\"×40\" / 5'"],
     headerBg: "bg-orange-50",
     headerText: "text-orange-900",
+    borderColor: "border-orange-100",
   },
   {
     range: [125, 140] as const,
     title: "125 – 140% MAS",
-    ratio: "1:1 / 1:2 / 1:4",
-    options: ["15\"×15\" / 3'", "15\"×30\" / 5'", "7\"×30\" / 3-5'"],
     headerBg: "bg-red-50",
     headerText: "text-red-900",
+    borderColor: "border-red-100",
   },
 ];
 
@@ -109,7 +94,7 @@ function SourceSelector({
   intervalTables: Props["intervalTables"];
 }) {
   return (
-    <div className="flex gap-2 flex-wrap">
+    <div className="flex flex-wrap gap-1.5">
       {(["vam", "30_15", "yoyo"] as const).map((ref) => {
         const enabled = Boolean(getTable(intervalTables, ref));
         return (
@@ -118,12 +103,12 @@ function SourceSelector({
             type="button"
             onClick={() => enabled && onSelect(ref)}
             disabled={!enabled}
-            className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition ${
+            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
               enabled
                 ? selected === ref
-                  ? "bg-blue-500 text-white"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                : "bg-slate-100 text-slate-400 opacity-40 cursor-not-allowed"
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
+                : "bg-slate-50 text-slate-400 ring-1 ring-slate-100 cursor-not-allowed"
             }`}
           >
             {SOURCE_LABELS[ref]}
@@ -134,42 +119,114 @@ function SourceSelector({
   );
 }
 
+function ChevronToggle({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      className={`h-4 w-4 text-slate-500 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      aria-hidden
+    >
+      <path
+        fillRule="evenodd"
+        d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.94a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
 function CollapsibleSection({
   title,
   summary,
-  headerExtra,
+  sourceToolbar,
   children,
+  expanded,
+  onToggle,
+  showChevron,
 }: {
   title: string;
   summary: string;
-  headerExtra?: ReactNode;
+  sourceToolbar?: ReactNode;
   children: ReactNode;
+  expanded: boolean;
+  onToggle: () => void;
+  /** En vista ancha (HIIT y MAS lado a lado) el encabezado no muestra el ícono; sigue siendo clicable entero. */
+  showChevron: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
-
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      <div className="px-6 py-4 bg-slate-50 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3 min-w-0">
-          <button
-            type="button"
-            onClick={() => setExpanded((prev) => !prev)}
-            aria-expanded={expanded}
-            aria-label={expanded ? `Colapsar ${title}` : `Expandir ${title}`}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg font-semibold text-slate-600 transition hover:bg-slate-100"
-          >
-            {expanded ? "−" : "+"}
-          </button>
-          <div className="min-w-0">
-            <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-            <p className="text-xs text-slate-500 mt-0.5">{summary}</p>
-          </div>
+    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-4 py-3 text-left transition hover:from-slate-100/80 hover:to-slate-50"
+      >
+        <div className="min-w-0 flex-1">
+          <h3 className="text-base font-semibold leading-snug text-slate-900">{title}</h3>
+          <p className="mt-0.5 truncate text-xs text-slate-500">{summary}</p>
         </div>
-        {expanded && headerExtra ? <div className="sm:ml-auto">{headerExtra}</div> : null}
-      </div>
-      {expanded ? children : null}
+        {showChevron ? (
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-slate-200">
+            <ChevronToggle expanded={expanded} />
+          </span>
+        ) : null}
+      </button>
+
+      {expanded ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {sourceToolbar ? (
+            <div className="border-b border-slate-100 bg-slate-50/50 px-4 py-2.5">{sourceToolbar}</div>
+          ) : null}
+          <div className="min-h-0 flex-1">{children}</div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function MasGroupCard({
+  title,
+  headerBg,
+  headerText,
+  borderColor,
+  rows,
+}: {
+  title: string;
+  headerBg: string;
+  headerText: string;
+  borderColor: string;
+  rows: IntervalRow[];
+}) {
+  return (
+    <div className={`overflow-hidden rounded-xl border ${borderColor} bg-white shadow-sm`}>
+      <div className={`border-b border-slate-100 px-3 py-2 ${headerBg}`}>
+        <h4 className={`text-sm font-semibold ${headerText}`}>{title}</h4>
+      </div>
+      <div className="p-3">
+        <IntervalRowsTable rows={rows} compact />
+      </div>
+    </div>
+  );
+}
+
+const XL_PAIR_MIN_WIDTH = 1280;
+
+function useXlSideBySideLayout() {
+  const [isXl, setIsXl] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(`(min-width: ${XL_PAIR_MIN_WIDTH}px)`).matches;
+  });
+
+  useEffect(() => {
+    const media = window.matchMedia(`(min-width: ${XL_PAIR_MIN_WIDTH}px)`);
+    const update = () => setIsXl(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return isXl;
 }
 
 export function TrainingTablesSection({ intervalTables }: Props) {
@@ -184,6 +241,29 @@ export function TrainingTablesSection({ intervalTables }: Props) {
 
   const [hiitOverride, setHiitOverride] = useState<SourceKey | null>(null);
   const [masOverride, setMasOverride] = useState<SourceKey | null>(null);
+  const isXlSideBySide = useXlSideBySideLayout();
+  const [pairExpanded, setPairExpanded] = useState(true);
+  const [hiitExpandedMobile, setHiitExpandedMobile] = useState(true);
+  const [masExpandedMobile, setMasExpandedMobile] = useState(true);
+
+  const hiitExpanded = isXlSideBySide ? pairExpanded : hiitExpandedMobile;
+  const masExpanded = isXlSideBySide ? pairExpanded : masExpandedMobile;
+
+  const toggleHiitPanel = () => {
+    if (isXlSideBySide) {
+      setPairExpanded((prev) => !prev);
+    } else {
+      setHiitExpandedMobile((prev) => !prev);
+    }
+  };
+
+  const toggleMasPanel = () => {
+    if (isXlSideBySide) {
+      setPairExpanded((prev) => !prev);
+    } else {
+      setMasExpandedMobile((prev) => !prev);
+    }
+  };
 
   const hiitSelected =
     hiitOverride && getTable(intervalTables, hiitOverride) ? hiitOverride : hiitDefault;
@@ -197,27 +277,22 @@ export function TrainingTablesSection({ intervalTables }: Props) {
 
   if (isEmpty) {
     return (
-      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm p-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-sm text-slate-600">Registrá al menos un test para ver los cuadros de entrenamiento.</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Cuadros de Entrenamiento</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          HIIT prioriza VAM → 30-15 → Yo-Yo. MAS prioriza 30-15 → Yo-Yo → VAM. Podés cambiar cada
-          sección por separado. Expandí cada bloque con +.
-        </p>
-      </div>
-
-      {hiitTable && hiitSelected && (
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,11fr)_minmax(0,9fr)] xl:items-start">
+      {hiitTable && hiitSelected ? (
         <CollapsibleSection
           title="Entrenamiento Intervalado HIIT"
           summary={`Ref: ${hiitTable.reference_kmh.toFixed(2)} km/h · ${SOURCE_LABELS[hiitSelected]}`}
-          headerExtra={
+          expanded={hiitExpanded}
+          onToggle={toggleHiitPanel}
+          showChevron={!isXlSideBySide}
+          sourceToolbar={
             <SourceSelector
               selected={hiitSelected}
               onSelect={setHiitOverride}
@@ -225,62 +300,46 @@ export function TrainingTablesSection({ intervalTables }: Props) {
             />
           }
         >
-          <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-200">
+          <div className="grid grid-cols-1 gap-3 border-t border-slate-100 p-3">
             {HIIT_CARDS.map((card) => {
               const cortoRows = filterRowsByTipo(hiitTable.rows, "fit_corto");
               const largoRows = filterRowsByTipo(hiitTable.rows, "fit_largo");
+              const rows = card.id === "fit_corto" ? cortoRows : largoRows;
 
               return (
-                <div key={card.id} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-                  <div className="p-4 border-b border-slate-200 flex items-start justify-between">
-                    <div>
-                      <h4 className="font-semibold text-slate-900">{card.title}</h4>
-                      <p className="text-xs text-slate-500 mt-1">{card.subtitle}</p>
+                <div
+                  key={card.id}
+                  className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white"
+                >
+                  <div className="flex items-start justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-3 py-2">
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-semibold text-slate-900">{card.title}</h4>
+                      <p className="mt-0.5 text-xs text-slate-500">{card.subtitle}</p>
                     </div>
-                    <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${card.badgeColor}`}>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${card.badgeColor}`}
+                    >
                       {card.badge}
                     </span>
                   </div>
-                  <div className="p-4 space-y-4">
-                    {card.id === "mixto" ? (
-                      <div className="space-y-4">
-                        <IntervalRowsTable
-                          rows={cortoRows}
-                          title="HIIT Corto"
-                          subtitle="10-30 seg · fit_corto"
-                          compact
-                        />
-                        <IntervalRowsTable
-                          rows={largoRows}
-                          title="HIIT Largo"
-                          subtitle="1-4 min · fit_largo"
-                          compact
-                        />
-                      </div>
-                    ) : (
-                      <IntervalRowsTable
-                        rows={card.id === "fit_corto" ? cortoRows : largoRows}
-                        compact
-                      />
-                    )}
-                    <div>
-                      <p className="text-xs text-slate-500 uppercase tracking-wide">Ratio</p>
-                      <p className="text-sm font-medium text-slate-900 mt-1">{card.ratio}</p>
-                    </div>
+                  <div className="flex flex-1 flex-col gap-2 p-2">
+                    <IntervalRowsTable rows={rows} compact />
                   </div>
                 </div>
               );
             })}
           </div>
-          <div className="px-6 pb-4 text-xs text-slate-500">* Esfuerzos que pueden durar más de 24&apos;.</div>
         </CollapsibleSection>
-      )}
+      ) : null}
 
-      {masTable && masSelected && (
+      {masTable && masSelected ? (
         <CollapsibleSection
           title="MAS Training"
           summary={`Ref: ${masTable.reference_kmh.toFixed(2)} km/h · ${SOURCE_LABELS[masSelected]}`}
-          headerExtra={
+          expanded={masExpanded}
+          onToggle={toggleMasPanel}
+          showChevron={!isXlSideBySide}
+          sourceToolbar={
             <SourceSelector
               selected={masSelected}
               onSelect={setMasOverride}
@@ -288,7 +347,7 @@ export function TrainingTablesSection({ intervalTables }: Props) {
             />
           }
         >
-          <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-200">
+          <div className="flex flex-col gap-3 border-t border-slate-100 p-3">
             {MAS_GROUPS.map((group) => {
               const rows = masTable.rows.filter(
                 (r) =>
@@ -300,34 +359,19 @@ export function TrainingTablesSection({ intervalTables }: Props) {
               if (rows.length === 0) return null;
 
               return (
-                <div
+                <MasGroupCard
                   key={`mas-${group.range[0]}`}
-                  className="border border-slate-200 rounded-lg overflow-hidden bg-white"
-                >
-                  <div className={`p-4 border-b border-slate-200 ${group.headerBg}`}>
-                    <h4 className={`font-semibold ${group.headerText}`}>{group.title}</h4>
-                  </div>
-                  <div className="p-4 space-y-4">
-                    <IntervalRowsTable rows={rows} compact />
-                    <div>
-                      <p className="text-xs text-slate-500 uppercase tracking-wide">Ratio</p>
-                      <p className="text-sm font-medium text-slate-900 mt-1">{group.ratio}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500 uppercase tracking-wide">Opciones</p>
-                      <ul className="mt-2 space-y-1 text-xs text-slate-700">
-                        {group.options.map((opt) => (
-                          <li key={opt}>• {opt}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                </div>
+                  title={group.title}
+                  headerBg={group.headerBg}
+                  headerText={group.headerText}
+                  borderColor={group.borderColor}
+                  rows={rows}
+                />
               );
             })}
           </div>
         </CollapsibleSection>
-      )}
+      ) : null}
     </div>
   );
 }

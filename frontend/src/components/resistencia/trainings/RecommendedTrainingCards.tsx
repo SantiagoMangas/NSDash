@@ -1,14 +1,31 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { formatPaceWithUnit } from "@/lib/units";
 import type { IntervalRow, IntervalTable } from "@/lib/types";
 
 type Props = {
-  speedReferenceKmh: number | null;
   speedTestTable?: IntervalTable | null;
-  beforeSpeedCards?: ReactNode;
 };
+
+const DESKTOP_MIN_WIDTH = 1024;
+
+function useIsDesktopLayout() {
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(`(min-width: ${DESKTOP_MIN_WIDTH}px)`).matches;
+  });
+
+  useEffect(() => {
+    const media = window.matchMedia(`(min-width: ${DESKTOP_MIN_WIDTH}px)`);
+    const update = () => setIsDesktop(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return isDesktop;
+}
 
 function findRangeRows(table: IntervalTable | null, tipo: string): { min: IntervalRow; max: IntervalRow } | null {
   const rows = table?.rows.filter((row) => row.tipo === tipo) ?? [];
@@ -20,30 +37,10 @@ function findRangeRows(table: IntervalTable | null, tipo: string): { min: Interv
 }
 
 const SPEED_TEST_PRESCRIPTIONS = [
-  {
-    id: "tr-extensivo",
-    title: "Tempo Run Extensivo",
-    subtitle: "Tempo Run",
-    tipo: "tr_extensivo",
-  },
-  {
-    id: "tr-recovery",
-    title: "Tempo Run Recovery",
-    subtitle: "Tempo Run",
-    tipo: "tr_recovery",
-  },
-  {
-    id: "rst",
-    title: "RST",
-    subtitle: "Repeated Sprint Training",
-    tipo: "rst",
-  },
-  {
-    id: "sit",
-    title: "SIT",
-    subtitle: "Sprint Interval Training",
-    tipo: "sit",
-  },
+  { id: "tr-extensivo", title: "Tempo Run Extensivo", tipo: "tr_extensivo" },
+  { id: "tr-recovery", title: "Tempo Run Recovery", tipo: "tr_recovery" },
+  { id: "rst", title: "RST", tipo: "rst" },
+  { id: "sit", title: "SIT", tipo: "sit" },
 ] as const;
 
 function formatSpeedRange(range: { min: IntervalRow; max: IntervalRow } | null) {
@@ -67,100 +64,114 @@ function formatPercentRange(range: { min: IntervalRow; max: IntervalRow } | null
   return `${range.min.porcentaje}-${range.max.porcentaje}%`;
 }
 
-function CollapseToggle({ expanded, onToggle, label }: { expanded: boolean; onToggle: () => void; label: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={expanded}
-      aria-label={expanded ? `Colapsar ${label}` : `Expandir ${label}`}
-      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-base font-semibold text-slate-600 transition hover:bg-slate-50"
-    >
-      {expanded ? "−" : "+"}
-    </button>
-  );
-}
-
-function CollapsibleCard({
-  title,
-  summary,
-  children,
-}: {
-  title: string;
-  summary?: string;
-  children: ReactNode;
-}) {
-  const [expanded, setExpanded] = useState(false);
+function CardDetail({ range }: { range: { min: IntervalRow; max: IntervalRow } | null }) {
+  const paceRange = formatPaceRange(range);
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      <div className="flex items-start justify-between gap-3 p-4">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-          {summary ? <p className="mt-1 text-xs text-slate-500 truncate">{summary}</p> : null}
-        </div>
-        <CollapseToggle
-          expanded={expanded}
-          onToggle={() => setExpanded((prev) => !prev)}
-          label={title}
-        />
-      </div>
-      {expanded ? <div className="border-t border-slate-100 px-4 pb-4 pt-3">{children}</div> : null}
+    <div className="space-y-2 text-sm">
+      <p className="text-slate-600">
+        Intensidad:{" "}
+        <span className="font-medium text-slate-900">{formatPercentRange(range)} MSS</span>
+      </p>
+      <p className="text-slate-600">
+        Velocidad objetivo:{" "}
+        <span className="font-medium text-indigo-700">{formatSpeedRange(range)}</span>
+      </p>
+      {paceRange ? (
+        <p className="text-slate-600">
+          Ritmo: <span className="font-medium text-slate-900">{paceRange}</span>
+        </p>
+      ) : null}
     </div>
   );
 }
 
-export function RecommendedTrainingCards({
-  speedReferenceKmh,
-  speedTestTable = null,
-  beforeSpeedCards = null,
-}: Props) {
+function PrescriptionCard({
+  cardId,
+  title,
+  summary,
+  expanded,
+  onCardActivate,
+  children,
+}: {
+  cardId: string;
+  title: string;
+  summary?: string;
+  expanded: boolean;
+  onCardActivate: () => void;
+  children: ReactNode;
+}) {
+  const detailId = `prescription-detail-${cardId}`;
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onCardActivate();
+    }
+  }
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-indigo-600">Entrenamiento recomendado</p>
-        {speedReferenceKmh !== null ? (
-          <p className="mt-1 text-sm text-slate-700">
-            MSS (Speed Test):{" "}
-            <strong className="text-slate-900">{speedReferenceKmh.toFixed(2)} km/h</strong>
-          </p>
-        ) : null}
+    <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={expanded}
+      aria-controls={detailId}
+      onClick={onCardActivate}
+      onKeyDown={handleKeyDown}
+      className="flex min-h-[5.5rem] cursor-pointer flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left shadow-sm outline-none transition hover:border-slate-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+    >
+      <div className="px-4 pt-4">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        {summary ? <p className="mt-1 text-xs text-slate-500 line-clamp-2">{summary}</p> : null}
       </div>
+      {expanded ? (
+        <div id={detailId} className="mt-3 border-t border-slate-100 px-4 pb-4 pt-3">
+          {children}
+        </div>
+      ) : (
+        <div className="flex-1" aria-hidden />
+      )}
+    </div>
+  );
+}
 
-      {beforeSpeedCards}
+export function RecommendedTrainingCards({ speedTestTable = null }: Props) {
+  const isDesktop = useIsDesktopLayout();
+  const [desktopExpanded, setDesktopExpanded] = useState(false);
+  const [mobileOpenId, setMobileOpenId] = useState<string | null>(null);
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {SPEED_TEST_PRESCRIPTIONS.map((item) => {
-          // TODO: confirmar con preparador si se debe usar un % único en vez de rango
-          const range = findRangeRows(speedTestTable, item.tipo);
-          const paceRange = formatPaceRange(range);
-          const summary = `${formatPercentRange(range)}${speedTestTable ? " MSS" : ""} · ${formatSpeedRange(range)}`;
+  if (!speedTestTable) {
+    return null;
+  }
 
-          return (
-            <CollapsibleCard key={item.id} title={item.title} summary={summary}>
-              <div className="space-y-2 text-sm">
-                <p className="text-xs text-slate-500">{item.subtitle}</p>
-                <p className="text-slate-600">
-                  Intensidad:{" "}
-                  <span className="font-medium text-slate-900">
-                    {formatPercentRange(range)}
-                    {speedTestTable ? " MSS" : ""}
-                  </span>
-                </p>
-                <p className="text-slate-600">
-                  Velocidad objetivo:{" "}
-                  <span className="font-medium text-indigo-700">{formatSpeedRange(range)}</span>
-                </p>
-                {paceRange ? (
-                  <p className="text-slate-600">
-                    Ritmo: <span className="font-medium text-slate-900">{paceRange}</span>
-                  </p>
-                ) : null}
-              </div>
-            </CollapsibleCard>
-          );
-        })}
-      </div>
+  function activateCard(id: string) {
+    if (isDesktop) {
+      setDesktopExpanded((prev) => !prev);
+    } else {
+      setMobileOpenId((prev) => (prev === id ? null : id));
+    }
+  }
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 xl:items-stretch">
+      {SPEED_TEST_PRESCRIPTIONS.map((item) => {
+        const range = findRangeRows(speedTestTable, item.tipo);
+        const summary = `${formatPercentRange(range)} MSS · ${formatSpeedRange(range)}`;
+        const expanded = isDesktop ? desktopExpanded : mobileOpenId === item.id;
+
+        return (
+          <PrescriptionCard
+            key={item.id}
+            cardId={item.id}
+            title={item.title}
+            summary={summary}
+            expanded={expanded}
+            onCardActivate={() => activateCard(item.id)}
+          >
+            <CardDetail range={range} />
+          </PrescriptionCard>
+        );
+      })}
     </div>
   );
 }
