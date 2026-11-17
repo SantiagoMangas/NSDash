@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 from .db import engine
 from .models import Exercise, TrainingLog
 from .strength_log_kinds import (
-    HORIZONTAL_TRACTION_EXERCISE_NAME,
-    HORIZONTAL_TRACTION_RM_COEFFICIENT,
     LOG_KIND_PULL_UP,
+    LOG_KIND_RM_ESTIMATED,
+    resolve_log_kind_for_exercise_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,8 +22,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_RM_COEFFICIENT = 1.0 / 30.0
 DEFAULT_FORMULA_TYPE = "epley"
 
-# PROVISORIO (Nico, WhatsApp): Oly y DLO usan Epley 0.033 en lugar de Brzycki — a confirmar.
-EPLEY_OLY_DLO_COEFFICIENT = 0.033
+# Confirmado Nico (17/11/2026): todos los ejercicios con log_kind rm_estimated usan Epley 0.033
+# (misma fórmula que Oly/DLO). Dominadas (pull_up) quedan sin RM. %RM por curva sin cambios.
+EPLEY_RM_ESTIMATED_COEFFICIENT = 0.033
+EPLEY_OLY_DLO_COEFFICIENT = EPLEY_RM_ESTIMATED_COEFFICIENT
 
 OLY_DLO_EXERCISE_NAMES: tuple[str, ...] = (
     "Oly - Clean - Cargada",
@@ -37,38 +39,26 @@ OLY_DLO_EXERCISE_NAMES: tuple[str, ...] = (
     "DLO - Hang Power Snatch - Arranque de Colgado",
 )
 
-# Coeficientes confirmados por nombre de ejercicio (familia).
-# Hips Thrust - Br: epley 0.024 (confirmado Nico, 07/10).
-# Thruster - Br: no está aquí; queda DEFAULT_RM_COEFFICIENT (pendiente Nico).
-EXERCISE_RM_PROFILES: dict[str, tuple[str, float]] = {
-    "Sentadilla - Front Squat": ("epley", 0.033),
-    "Sentadilla - Box Squat": ("epley", 0.033),
-    "Sentadilla - Back Squat": ("epley", 0.033),
-    "Press Plano - Br": ("epley", 0.015),
-    "Press Militar - Estricto": ("epley", 0.020),
-    "Push Press - Br": ("epley", 0.020),
-    "Peso muerto - Rumano": ("epley", 0.018),
-    "Hips Thrust - Br": ("epley", 0.024),
-    HORIZONTAL_TRACTION_EXERCISE_NAME: ("epley", HORIZONTAL_TRACTION_RM_COEFFICIENT),
-    "Peso muerto - Sumo": ("epley", 0.018),
-    "Peso muerto - Convencional": ("epley", 0.018),
-    "Oly - Clean - Cargada": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
-    "Oly - Clean & Jerk - Envión": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
-    "Oly - Split Jerk - 2do tiempo de tijera": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
-    "Oly - Snatch - Arranque": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
-    "Oly - Power Jerk - 2do tiempo de potencia": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
-    "DLO - Hang Sq Clean - Cargada de Colgado a Profundo": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
-    "DLO - Hang Sq Snatch - Arranque de Colgado a Prufundo": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
-    "DLO - Hang Power Clean - Cargada de Colgado": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
-    "DLO - Hang Power Snatch - Arranque de Colgado": ("epley", EPLEY_OLY_DLO_COEFFICIENT),
-}
-
 LAST_RM_RECALC: dict[str, Any] = {
     "logs_total": 0,
     "logs_updated": 0,
     "oly_dlo_logs_updated": 0,
     "samples": [],
 }
+
+
+def resolve_exercise_log_kind(exercise: Exercise) -> str:
+    kind = getattr(exercise, "log_kind", None)
+    if isinstance(kind, str) and kind.strip():
+        return kind.strip()
+    return resolve_log_kind_for_exercise_name(exercise.name)
+
+
+def resolve_rm_profile(exercise: Exercise) -> tuple[str, float] | None:
+    """Perfil de fórmula para persistir en catálogo; None si el ejercicio no estima RM."""
+    if resolve_exercise_log_kind(exercise) != LOG_KIND_RM_ESTIMATED:
+        return None
+    return DEFAULT_FORMULA_TYPE, EPLEY_RM_ESTIMATED_COEFFICIENT
 
 
 def compute_estimated_rm(weight: float, reps: int, exercise: Exercise) -> float:
@@ -89,12 +79,13 @@ def compute_estimated_rm(weight: float, reps: int, exercise: Exercise) -> float:
 
 def exercise_with_rm_profile(exercise: Exercise) -> Exercise:
     """Copia lógica de apply_exercise_rm_profiles sin persistir (dry-run)."""
-    profile = EXERCISE_RM_PROFILES.get(exercise.name)
     clone = Exercise(
         name=exercise.name,
         formula_type=exercise.formula_type,
         rm_coefficient=exercise.rm_coefficient,
+        log_kind=getattr(exercise, "log_kind", None),
     )
+    profile = resolve_rm_profile(exercise)
     if profile is not None:
         clone.formula_type, clone.rm_coefficient = profile
     return clone
@@ -121,7 +112,9 @@ def migrate_exercise_rm_columns() -> None:
 
 def apply_exercise_rm_profiles(db: Session) -> None:
     for exercise in db.query(Exercise).all():
-        profile = EXERCISE_RM_PROFILES.get(exercise.name)
+        if not exercise.log_kind:
+            exercise.log_kind = resolve_log_kind_for_exercise_name(exercise.name)
+        profile = resolve_rm_profile(exercise)
         if profile is not None:
             formula_type, coefficient = profile
             exercise.formula_type = formula_type
@@ -155,13 +148,14 @@ def recalculate_all_training_logs_rm(db: Session) -> None:
     oly_dlo_updated = 0
 
     for log, exercise in logs:
-        if getattr(exercise, "log_kind", None) == LOG_KIND_PULL_UP:
+        if resolve_exercise_log_kind(exercise) == LOG_KIND_PULL_UP:
             if log.estimated_rm is not None:
                 log.estimated_rm = None
                 updated += 1
             continue
         old_rm = log.estimated_rm
-        new_rm = round(compute_estimated_rm(log.weight, log.reps, exercise), 2)
+        profiled = exercise_with_rm_profile(exercise)
+        new_rm = round(compute_estimated_rm(log.weight, log.reps, profiled), 2)
         if old_rm is None or abs(float(old_rm) - new_rm) > 1e-6:
             updated += 1
             if exercise.name in OLY_DLO_EXERCISE_NAMES:
@@ -172,8 +166,8 @@ def recalculate_all_training_logs_rm(db: Session) -> None:
             sample_by_exercise[exercise.name] = {
                 "log_id": log.id,
                 "exercise": exercise.name,
-                "formula": exercise.formula_type,
-                "coefficient": exercise.rm_coefficient,
+                "formula": profiled.formula_type,
+                "coefficient": profiled.rm_coefficient,
                 "weight": log.weight,
                 "reps": log.reps,
                 "estimated_rm_before": old_rm,
@@ -187,8 +181,8 @@ def recalculate_all_training_logs_rm(db: Session) -> None:
             sample_by_exercise[exercise.name] = {
                 "log_id": log.id,
                 "exercise": exercise.name,
-                "formula": exercise.formula_type,
-                "coefficient": exercise.rm_coefficient,
+                "formula": profiled.formula_type,
+                "coefficient": profiled.rm_coefficient,
                 "weight": log.weight,
                 "reps": log.reps,
                 "estimated_rm_before": old_rm,

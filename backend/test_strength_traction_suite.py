@@ -14,7 +14,6 @@ from app.main import STRENGTH_EXERCISES, app, on_startup
 from app.models import Athlete, Exercise
 from app.strength_log_kinds import (
     HORIZONTAL_TRACTION_EXERCISE_NAME,
-    HORIZONTAL_TRACTION_RM_COEFFICIENT,
     LOG_KIND_PULL_UP,
     PULL_UP_EXERCISE_NAMES,
     PULL_UP_MODALITIES,
@@ -26,11 +25,11 @@ from app.strength_percentage import (
     resolve_percentage_curve,
 )
 from app.strength_rm import (
-    EPLEY_OLY_DLO_COEFFICIENT,
-    EXERCISE_RM_PROFILES,
+    EPLEY_RM_ESTIMATED_COEFFICIENT,
     OLY_DLO_EXERCISE_NAMES,
     compute_estimated_rm,
     exercise_with_rm_profile,
+    resolve_rm_profile,
 )
 
 EXCEL_PATH = Path(
@@ -102,11 +101,9 @@ class TestLogKinds:
 
 
 class TestHorizontalTractionRm:
-    def test_epley_coefficient_0062(self):
-        assert EXERCISE_RM_PROFILES[HORIZONTAL_TRACTION_EXERCISE_NAME] == (
-            "epley",
-            HORIZONTAL_TRACTION_RM_COEFFICIENT,
-        )
+    def test_epley_coefficient_unified(self):
+        ex = Exercise(name=HORIZONTAL_TRACTION_EXERCISE_NAME, log_kind="rm_estimated")
+        assert resolve_rm_profile(ex) == ("epley", EPLEY_RM_ESTIMATED_COEFFICIENT)
 
     def test_percentage_curve_peso_muerto(self):
         ex = Exercise(name=HORIZONTAL_TRACTION_EXERCISE_NAME)
@@ -115,8 +112,7 @@ class TestHorizontalTractionRm:
 
     def test_rm_sample_100x5(self):
         ex = exercise_with_rm_profile(Exercise(name=HORIZONTAL_TRACTION_EXERCISE_NAME))
-        # 100 * (1 + 5 * 0.062) = 131.0
-        assert compute_estimated_rm(100.0, 5, ex) == pytest.approx(131.0)
+        assert compute_estimated_rm(100.0, 5, ex) == pytest.approx(100.0 * (1 + 5 * 0.033))
 
     def test_percentage_table_matches_deadlift_curve(self):
         ex = Exercise(name=HORIZONTAL_TRACTION_EXERCISE_NAME)
@@ -125,11 +121,11 @@ class TestHorizontalTractionRm:
         assert horizontal == dead
 
 
-class TestOlyDloEpleyProvisional:
+class TestRmEstimatedEpleyUnified:
     def test_all_oly_dlo_profiles_epley_033(self):
         for name in OLY_DLO_EXERCISE_NAMES:
-            assert name in EXERCISE_RM_PROFILES
-            assert EXERCISE_RM_PROFILES[name] == ("epley", EPLEY_OLY_DLO_COEFFICIENT)
+            ex = Exercise(name=name, log_kind="rm_estimated")
+            assert resolve_rm_profile(ex) == ("epley", EPLEY_RM_ESTIMATED_COEFFICIENT)
 
     def test_clean_row_80x5_epley(self):
         ex = exercise_with_rm_profile(Exercise(name="Oly - Clean - Cargada"))
@@ -228,7 +224,7 @@ class TestHorizontalTractionApi:
         )
         assert res.status_code == 200
         rm = float(res.json()["estimated_rm"])
-        expected = round(60.0 * (1 + 6 * HORIZONTAL_TRACTION_RM_COEFFICIENT), 2)
+        expected = round(60.0 * (1 + 6 * EPLEY_RM_ESTIMATED_COEFFICIENT), 2)
         assert abs(rm - expected) < 0.02
 
         log_id = res.json()["id"]

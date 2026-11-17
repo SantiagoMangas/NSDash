@@ -147,7 +147,7 @@ export function AddExerciseForm({ onCreated, onToast }: Props) {
             disabled={formulaType === "brzycki"}
             required={formulaType === "epley"}
             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
-            placeholder="0.018"
+            placeholder="0.033"
           />
         </div>
         <div className="sm:col-span-2">

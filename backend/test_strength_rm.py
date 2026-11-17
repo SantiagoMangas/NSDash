@@ -16,10 +16,9 @@ class TestComputeEstimatedRm:
         ex = _exercise("epley", 0.033)
         assert compute_estimated_rm(100.0, 5, ex) == 116.5
 
-    def test_epley_press_plano_coefficient(self):
-        ex = _exercise("epley", 0.015)
-        # 80 x 8 → 80 * (1 + 8*0.015) = 89.6
-        assert compute_estimated_rm(80.0, 8, ex) == pytest.approx(89.6)
+    def test_epley_unified_rm_estimated_coefficient(self):
+        ex = _exercise("epley", 0.033)
+        assert compute_estimated_rm(80.0, 8, ex) == pytest.approx(80.0 * (1 + 8 * 0.033))
 
     def test_brzycki_ignores_rm_coefficient(self):
         ex = _exercise("brzycki", 0.999)
@@ -32,11 +31,6 @@ class TestComputeEstimatedRm:
         with pytest.raises(ValueError):
             compute_estimated_rm(100.0, 40, ex)
 
-    def test_epley_oly_dlo_provisional_coefficient(self):
+    def test_epley_oly_dlo_coefficient_alias(self):
         ex = _exercise("epley", 0.033)
         assert compute_estimated_rm(100.0, 5, ex) == 116.5
-
-    def test_epley_hips_thrust_coefficient(self):
-        ex = _exercise("epley", 0.024)
-        # 80 x 8 -> 80 * (1 + 8*0.024) = 95.36
-        assert compute_estimated_rm(80.0, 8, ex) == pytest.approx(95.36)

@@ -18,7 +18,6 @@ PULL_UP_EXERCISE_NAMES = frozenset(
 )
 
 HORIZONTAL_TRACTION_EXERCISE_NAME = "Tracción Horizontal - Remo a 90°"
-HORIZONTAL_TRACTION_RM_COEFFICIENT = 0.062
 
 
 def resolve_log_kind_for_exercise_name(name: str) -> str:

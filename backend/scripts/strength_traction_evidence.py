@@ -16,10 +16,10 @@ from app.strength_log_kinds import (
 )
 from app.strength_percentage import resolve_percentage_curve
 from app.strength_rm import (
-    EXERCISE_RM_PROFILES,
     OLY_DLO_EXERCISE_NAMES,
     compute_estimated_rm,
     exercise_with_rm_profile,
+    resolve_rm_profile,
 )
 
 
@@ -48,15 +48,15 @@ def main() -> int:
     for name in sorted(PULL_UP_EXERCISE_NAMES):
         print(f"  - {name}")
 
-    print("\n--- OLY/DLO (Brzycki) ---")
+    print("\n--- OLY/DLO (Epley 0.033) ---")
     for name in OLY_DLO_EXERCISE_NAMES:
-        prof = EXERCISE_RM_PROFILES.get(name)
+        prof = resolve_rm_profile(Exercise(name=name, log_kind="rm_estimated"))
         ex = exercise_with_rm_profile(Exercise(name=name))
         clean_style = (
             round(compute_estimated_rm(80.0, 5, ex), 2) if name == "Oly - Clean - Cargada" else None
         )
         extra = f", ref 80×5={clean_style}" if clean_style else ""
-        print(f"  - {name}: {prof[0]}{extra}")
+        print(f"  - {name}: {prof[0] if prof else '—'}{extra}")
 
     print("\n--- Holly / Hip Strap ---")
     print("  (no están en Excel v4 ni en STRENGTH_EXERCISES; pendiente si Nico los suma)")

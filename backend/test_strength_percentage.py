@@ -17,7 +17,46 @@ def _ex(name: str, curve: str | None = None) -> Exercise:
     return ex
 
 
+# Tablas congeladas al 17/11/2026: si cambian, es cambio intencional en PERCENTAGE_CURVES.
+_PERCENTAGE_TABLE_GOLDEN_RM100: dict[str, list[dict]] = {
+    "sentadilla": [
+        {"percentage": 100.0, "reps": 1, "weight": 100.0, "rir_plus_1": 0, "rir_plus_2": 0, "rir_plus_3": 0},
+        {"percentage": 95.0, "reps": 2, "weight": 95.0, "rir_plus_1": 1, "rir_plus_2": 0, "rir_plus_3": 0},
+        {"percentage": 92.5, "reps": 3, "weight": 92.5, "rir_plus_1": 2, "rir_plus_2": 1, "rir_plus_3": 0},
+        {"percentage": 90.0, "reps": 4, "weight": 90.0, "rir_plus_1": 3, "rir_plus_2": 2, "rir_plus_3": 1},
+        {"percentage": 87.5, "reps": 5, "weight": 87.5, "rir_plus_1": 4, "rir_plus_2": 3, "rir_plus_3": 2},
+        {"percentage": 85.0, "reps": 6, "weight": 85.0, "rir_plus_1": 5, "rir_plus_2": 4, "rir_plus_3": 3},
+        {"percentage": 80.0, "reps": 8, "weight": 80.0, "rir_plus_1": 7, "rir_plus_2": 6, "rir_plus_3": 5},
+        {"percentage": 75.0, "reps": 10, "weight": 75.0, "rir_plus_1": 9, "rir_plus_2": 8, "rir_plus_3": 7},
+    ],
+    "peso_muerto": [
+        {"percentage": 100.0, "reps": 1, "weight": 100.0, "rir_plus_1": 0, "rir_plus_2": 0, "rir_plus_3": 0},
+        {"percentage": 95.0, "reps": 2, "weight": 95.0, "rir_plus_1": 1, "rir_plus_2": 0, "rir_plus_3": 0},
+        {"percentage": 93.0, "reps": 3, "weight": 93.0, "rir_plus_1": 2, "rir_plus_2": 1, "rir_plus_3": 0},
+        {"percentage": 90.0, "reps": 4, "weight": 90.0, "rir_plus_1": 3, "rir_plus_2": 2, "rir_plus_3": 1},
+        {"percentage": 87.0, "reps": 5, "weight": 87.0, "rir_plus_1": 4, "rir_plus_2": 3, "rir_plus_3": 2},
+        {"percentage": 85.0, "reps": 6, "weight": 85.0, "rir_plus_1": 5, "rir_plus_2": 4, "rir_plus_3": 3},
+        {"percentage": 80.0, "reps": 8, "weight": 80.0, "rir_plus_1": 7, "rir_plus_2": 6, "rir_plus_3": 5},
+        {"percentage": 75.0, "reps": 10, "weight": 75.0, "rir_plus_1": 9, "rir_plus_2": 8, "rir_plus_3": 7},
+    ],
+    "banco_plano": [
+        {"percentage": 100.0, "reps": 1, "weight": 100.0, "rir_plus_1": 0, "rir_plus_2": 0, "rir_plus_3": 0},
+        {"percentage": 97.5, "reps": 2, "weight": 97.5, "rir_plus_1": 1, "rir_plus_2": 0, "rir_plus_3": 0},
+        {"percentage": 95.0, "reps": 3, "weight": 95.0, "rir_plus_1": 2, "rir_plus_2": 1, "rir_plus_3": 0},
+        {"percentage": 92.5, "reps": 4, "weight": 92.5, "rir_plus_1": 3, "rir_plus_2": 2, "rir_plus_3": 1},
+        {"percentage": 90.0, "reps": 5, "weight": 90.0, "rir_plus_1": 4, "rir_plus_2": 3, "rir_plus_3": 2},
+        {"percentage": 85.0, "reps": 6, "weight": 85.0, "rir_plus_1": 5, "rir_plus_2": 4, "rir_plus_3": 3},
+        {"percentage": 80.0, "reps": 8, "weight": 80.0, "rir_plus_1": 7, "rir_plus_2": 6, "rir_plus_3": 5},
+        {"percentage": 75.0, "reps": 10, "weight": 75.0, "rir_plus_1": 9, "rir_plus_2": 8, "rir_plus_3": 7},
+    ],
+}
+
+
 class TestPercentageCurves:
+    def test_percentage_tables_unchanged_golden_at_rm100(self):
+        for curve_key, expected in _PERCENTAGE_TABLE_GOLDEN_RM100.items():
+            assert build_percentage_table(100.0, curve_key=curve_key) == expected
+
     def test_sentadilla_row_at_92_5_percent(self):
         rows = build_percentage_table(100.0, curve_key="sentadilla")
         row = next(r for r in rows if r["percentage"] == 92.5)
