@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Solo lectura: estima cuántos training_logs cambiarían al unificar Epley 0.033
-en todos los ejercicios rm_estimated. No llama on_startup, no commit, no deploy.
+Solo lectura: estima cuántos training_logs cambiarían al pasar a Brzycki.
+No llama on_startup, no commit, no deploy.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from app.strength_rm import (
     resolve_exercise_log_kind,
 )
 
-# Para filtrar logs del atleta protegido en evidencia (salida sin nombres).
 _PROTECTED_ATHLETE_NAME = "Máxima Alvarez Vanolli"
 
 
@@ -34,6 +33,10 @@ def _rm_pct_change(before: float | None, after: float) -> float | None:
 def main() -> int:
     db_path = get_sqlite_path()
     print(f"DB (solo lectura): {db_path}\n")
+    print(
+        "Backup SQLite: en deploy/producción corre try_backup_sqlite_before_migrations() "
+        "antes del recálculo (ver app/main.py on_startup y sqlite_startup_backup.py).\n"
+    )
 
     with SessionLocal() as db:
         rows = (
@@ -50,9 +53,7 @@ def main() -> int:
             rm_estimated_logs.append((log, exercise, athlete))
 
         changed = 0
-        formula_only_delta = 0
         examples: list[dict] = []
-
         protected_deltas: list[dict] = []
 
         for log, exercise, athlete in rm_estimated_logs:
@@ -70,14 +71,10 @@ def main() -> int:
                 if log.estimated_rm is not None
                 else rm_with_db
             )
-            deploy_before = stored_before
             deploy_after = rm_with_profile
-            stored_delta_pct = _rm_pct_change(deploy_before, deploy_after)
+            stored_delta_pct = _rm_pct_change(stored_before, deploy_after)
 
-            if rm_with_db != rm_with_profile:
-                formula_only_delta += 1
-
-            if deploy_before != deploy_after:
+            if stored_before != deploy_after:
                 changed += 1
                 if len(examples) < 5:
                     examples.append(
@@ -88,11 +85,10 @@ def main() -> int:
                             "reps": log.reps,
                             "formula_before": exercise.formula_type,
                             "coef_before": exercise.rm_coefficient,
-                            "estimated_rm_before": deploy_before,
+                            "estimated_rm_before": stored_before,
                             "formula_after": after_ex.formula_type,
                             "coef_after": after_ex.rm_coefficient,
                             "estimated_rm_after": deploy_after,
-                            "rm_from_db_coef": rm_with_db,
                         }
                     )
 
@@ -102,7 +98,7 @@ def main() -> int:
                         "log_id": log.id,
                         "weight": log.weight,
                         "reps": log.reps,
-                        "estimated_rm_before": deploy_before,
+                        "estimated_rm_before": stored_before,
                         "estimated_rm_after": deploy_after,
                         "rm_change_pct": stored_delta_pct,
                     }
@@ -113,54 +109,42 @@ def main() -> int:
             for d in protected_deltas
             if d["rm_change_pct"] is not None
         ]
-        protected_summary = {
-            "logs_total": len(protected_deltas),
-            "logs_with_rm_change": sum(
-                1
-                for d in protected_deltas
-                if d["estimated_rm_before"] != d["estimated_rm_after"]
-            ),
-            "rm_change_pct_min": min(pct_values) if pct_values else None,
-            "rm_change_pct_max": max(pct_values) if pct_values else None,
-        }
 
         summary = {
             "rm_estimated_logs_total": len(rm_estimated_logs),
             "logs_would_change_stored_rm": changed,
-            "logs_formula_delta_vs_db_coef": formula_only_delta,
             "examples": examples,
-            "protected_athlete_rm_sample": protected_deltas,
             "protected_athlete_rm_change_pct_range": {
-                "min": protected_summary["rm_change_pct_min"],
-                "max": protected_summary["rm_change_pct_max"],
-                "logs": protected_summary["logs_total"],
-                "logs_changed": protected_summary["logs_with_rm_change"],
+                "min": min(pct_values) if pct_values else None,
+                "max": max(pct_values) if pct_values else None,
+                "logs": len(protected_deltas),
+                "logs_changed": sum(
+                    1
+                    for d in protected_deltas
+                    if d["estimated_rm_before"] != d["estimated_rm_after"]
+                ),
             },
         }
 
         print("=== Conteo (sin escribir en DB) ===")
         print(f"  Logs rm_estimated en scope: {len(rm_estimated_logs)}")
         print(f"  RM guardado cambiaría:      {changed}")
-        print(f"  Delta solo fórmula (DB coef): {formula_only_delta}")
-        print(f"  Logs pull_up excluidos:      {len(rows) - len(rm_estimated_logs)}")
 
         print("\n=== Hasta 5 ejemplos (antes -> después) ===")
         if not examples:
-            print("  (No hay logs o el RM ya coincide con Epley 0.033.)")
+            print("  (No hay cambios respecto a Brzycki.)")
         for ex in examples:
             print(
                 f"  log {ex['log_id']} | {ex['exercise']} | {ex['weight']}×{ex['reps']} | "
-                f"{ex['formula_before']}/{ex['coef_before']} -> RM {ex['estimated_rm_before']} | "
-                f"{ex['formula_after']}/{ex['coef_after']} -> RM {ex['estimated_rm_after']}"
+                f"RM {ex['estimated_rm_before']} -> {ex['estimated_rm_after']} "
+                f"({ex['formula_before']} -> {ex['formula_after']})"
             )
 
         print("\n=== Atleta protegido (solo cargas y % cambio RM, sin nombres) ===")
-        print(f"  Logs rm_estimated: {protected_summary['logs_total']}")
-        print(f"  Con cambio de RM:  {protected_summary['logs_with_rm_change']}")
-        print(
-            f"  Cambio % RM min/max: {protected_summary['rm_change_pct_min']} / "
-            f"{protected_summary['rm_change_pct_max']}"
-        )
+        pr = summary["protected_athlete_rm_change_pct_range"]
+        print(f"  Logs rm_estimated: {pr['logs']}")
+        print(f"  Con cambio de RM:  {pr['logs_changed']}")
+        print(f"  Cambio % RM min/max: {pr['min']} / {pr['max']}")
 
         print("\n=== JSON ===")
         print(json.dumps(summary, indent=2, ensure_ascii=False))

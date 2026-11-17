@@ -1,4 +1,4 @@
-"""RM estimado por ejercicio (Epley / Brzycki)."""
+"""RM estimado (Brzycki) para ejercicios de fuerza con rm_estimated."""
 
 from __future__ import annotations
 
@@ -18,14 +18,18 @@ from .strength_log_kinds import (
 
 logger = logging.getLogger(__name__)
 
-# Default histórico: weight * (1 + reps/30)
+# Brzycki: RM = carga / (A − B × repeticiones)
+BRZYCKI_INTERCEPT = 1.0278
+BRZYCKI_REP_COEFFICIENT = 0.0278
+DEFAULT_FORMULA_TYPE = "brzycki"
+# Legacy DB default; Brzycki no usa coeficiente por ejercicio.
 DEFAULT_RM_COEFFICIENT = 1.0 / 30.0
-DEFAULT_FORMULA_TYPE = "epley"
 
-# Confirmado Nico (17/11/2026): todos los ejercicios con log_kind rm_estimated usan Epley 0.033
-# (misma fórmula que Oly/DLO). Dominadas (pull_up) quedan sin RM. %RM por curva sin cambios.
-EPLEY_RM_ESTIMATED_COEFFICIENT = 0.033
-EPLEY_OLY_DLO_COEFFICIENT = EPLEY_RM_ESTIMATED_COEFFICIENT
+# Confirmado Nico (17/11/2026): todos los rm_estimated usan Brzycki; dominadas sin RM.
+MAX_RM_REPS = 30
+RM_REPS_MAX_ERROR = (
+    "Las repeticiones no pueden superar 30 para estimar RM con la fórmula de Brzycki."
+)
 
 OLY_DLO_EXERCISE_NAMES: tuple[str, ...] = (
     "Oly - Clean - Cargada",
@@ -47,6 +51,27 @@ LAST_RM_RECALC: dict[str, Any] = {
 }
 
 
+def validate_rm_reps(reps: int) -> None:
+    if not isinstance(reps, int) or reps <= 0:
+        raise ValueError("Las repeticiones deben ser un número entero mayor a 0.")
+    if reps > MAX_RM_REPS:
+        raise ValueError(RM_REPS_MAX_ERROR)
+
+
+def brzycki_denominator(reps: int) -> float:
+    validate_rm_reps(reps)
+    return BRZYCKI_INTERCEPT - BRZYCKI_REP_COEFFICIENT * reps
+
+
+def compute_brzycki_rm(weight: float, reps: int) -> float:
+    denominator = brzycki_denominator(reps)
+    if denominator <= 0:
+        raise ValueError(
+            "Brzycki: repeticiones demasiado altas para la fórmula."
+        )
+    return float(weight) / denominator
+
+
 def resolve_exercise_log_kind(exercise: Exercise) -> str:
     kind = getattr(exercise, "log_kind", None)
     if isinstance(kind, str) and kind.strip():
@@ -54,27 +79,17 @@ def resolve_exercise_log_kind(exercise: Exercise) -> str:
     return resolve_log_kind_for_exercise_name(exercise.name)
 
 
-def resolve_rm_profile(exercise: Exercise) -> tuple[str, float] | None:
+def resolve_rm_profile(exercise: Exercise) -> tuple[str, None] | None:
     """Perfil de fórmula para persistir en catálogo; None si el ejercicio no estima RM."""
     if resolve_exercise_log_kind(exercise) != LOG_KIND_RM_ESTIMATED:
         return None
-    return DEFAULT_FORMULA_TYPE, EPLEY_RM_ESTIMATED_COEFFICIENT
+    return DEFAULT_FORMULA_TYPE, None
 
 
 def compute_estimated_rm(weight: float, reps: int, exercise: Exercise) -> float:
-    formula = (exercise.formula_type or DEFAULT_FORMULA_TYPE).lower()
-    if formula == "brzycki":
-        denominator = 1.0278 - 0.0278 * reps
-        if denominator <= 0:
-            raise ValueError("Brzycki: repeticiones demasiado altas para la fórmula")
-        return float(weight / denominator)
-
-    coefficient = (
-        exercise.rm_coefficient
-        if exercise.rm_coefficient is not None
-        else DEFAULT_RM_COEFFICIENT
-    )
-    return float(weight * (1 + reps * coefficient))
+    if resolve_exercise_log_kind(exercise) == LOG_KIND_PULL_UP:
+        raise ValueError("Este ejercicio no estima RM.")
+    return compute_brzycki_rm(weight, reps)
 
 
 def exercise_with_rm_profile(exercise: Exercise) -> Exercise:
@@ -120,10 +135,8 @@ def apply_exercise_rm_profiles(db: Session) -> None:
             exercise.formula_type = formula_type
             exercise.rm_coefficient = coefficient
         else:
-            if exercise.formula_type is None:
-                exercise.formula_type = DEFAULT_FORMULA_TYPE
-            if exercise.rm_coefficient is None:
-                exercise.rm_coefficient = DEFAULT_RM_COEFFICIENT
+            exercise.formula_type = DEFAULT_FORMULA_TYPE
+            exercise.rm_coefficient = None
     db.commit()
 
 
@@ -155,7 +168,16 @@ def recalculate_all_training_logs_rm(db: Session) -> None:
             continue
         old_rm = log.estimated_rm
         profiled = exercise_with_rm_profile(exercise)
-        new_rm = round(compute_estimated_rm(log.weight, log.reps, profiled), 2)
+        try:
+            validate_rm_reps(int(log.reps))
+            new_rm = round(compute_estimated_rm(log.weight, log.reps, profiled), 2)
+        except ValueError:
+            logger.warning(
+                "RM recalc omitido log %s: reps=%s fuera de rango Brzycki",
+                log.id,
+                log.reps,
+            )
+            continue
         if old_rm is None or abs(float(old_rm) - new_rm) > 1e-6:
             updated += 1
             if exercise.name in OLY_DLO_EXERCISE_NAMES:

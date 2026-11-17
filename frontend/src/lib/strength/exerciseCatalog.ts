@@ -45,16 +45,10 @@ export function groupExercisesByCurve(exercises: Exercise[]): Map<PercentageCurv
 }
 
 export function formatExerciseFormula(exercise: Exercise): string {
-  const formula = exercise.formula_type?.toLowerCase() === "brzycki" ? "Brzycki" : "Epley";
-  if (formula === "Brzycki") {
-    return "Brzycki";
+  if (exercise.log_kind === "pull_up") {
+    return "Sin RM estimado";
   }
-  const coef = exercise.rm_coefficient;
-  if (typeof coef === "number" && Number.isFinite(coef)) {
-    const display = parseFloat(coef.toPrecision(4));
-    return `Epley (coef. ${display})`;
-  }
-  return "Epley";
+  return "Brzycki";
 }
 
 export function buildFuerzaHref(exerciseId: number, athleteId: number | null): string {

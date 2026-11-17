@@ -25,10 +25,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.strength_log_kinds import LOG_KIND_PULL_UP, resolve_log_kind_for_exercise_name
-from app.strength_rm import EPLEY_RM_ESTIMATED_COEFFICIENT, OLY_DLO_EXERCISE_NAMES
+from app.strength_rm import compute_brzycki_rm, validate_rm_reps
 
 _PROTECTED_ATHLETE_MARKER = "Alvarez"  # filtro interno; salida sin nombres
-_SENTADILLA_PREFIX = "Sentadilla -"
 
 
 def _require_env(name: str) -> str:
@@ -78,18 +77,12 @@ def _snapshot_dir() -> Path:
     return out
 
 
-def _expected_rm_epley(weight: float, reps: int) -> float:
-    return round(float(weight) * (1 + int(reps) * EPLEY_RM_ESTIMATED_COEFFICIENT), 2)
-
-
-def _exercise_already_033(name: str, log_kind: str) -> bool:
-    if log_kind == LOG_KIND_PULL_UP:
-        return False
-    if name in OLY_DLO_EXERCISE_NAMES:
-        return True
-    if name.startswith(_SENTADILLA_PREFIX):
-        return True
-    return False
+def _expected_rm_brzycki(weight: float, reps: int) -> float | None:
+    try:
+        validate_rm_reps(int(reps))
+        return round(compute_brzycki_rm(float(weight), int(reps)), 2)
+    except ValueError:
+        return None
 
 
 def _fetch_snapshot(base: str, token: str) -> dict:
@@ -123,7 +116,7 @@ def _fetch_snapshot(base: str, token: str) -> dict:
         if log_kind == LOG_KIND_PULL_UP:
             expected_rm = None
         else:
-            expected_rm = _expected_rm_epley(weight, reps)
+            expected_rm = _expected_rm_brzycki(weight, reps)
 
         rows.append(
             {
@@ -134,9 +127,8 @@ def _fetch_snapshot(base: str, token: str) -> dict:
                 "weight": weight,
                 "reps": reps,
                 "estimated_rm": stored_rm_rounded,
-                "expected_rm_epley_0033": expected_rm,
+                "expected_rm_brzycki": expected_rm,
                 "log_kind": log_kind,
-                "already_epley_0033_family": _exercise_already_033(ex_name, log_kind),
             }
         )
 
@@ -146,7 +138,7 @@ def _fetch_snapshot(base: str, token: str) -> dict:
     pct_changes: list[float] = []
     for row in protected_logs:
         before = row["estimated_rm"]
-        after = row["expected_rm_epley_0033"]
+        after = row["expected_rm_brzycki"]
         if before is not None and after is not None and before != 0:
             pct_changes.append(round((after - before) / before * 100, 4))
 
@@ -182,16 +174,16 @@ def _fetch_snapshot(base: str, token: str) -> dict:
                     "weight": r["weight"],
                     "reps": r["reps"],
                     "estimated_rm_before_snapshot": r["estimated_rm"],
-                    "expected_rm_epley_0033": r["expected_rm_epley_0033"],
-                    "rm_change_pct_vs_epley033": (
+                    "expected_rm_brzycki": r["expected_rm_brzycki"],
+                    "rm_change_pct_vs_brzycki": (
                         round(
-                            (r["expected_rm_epley_0033"] - r["estimated_rm"])
+                            (r["expected_rm_brzycki"] - r["estimated_rm"])
                             / r["estimated_rm"]
                             * 100,
                             4,
                         )
                         if r["estimated_rm"] is not None
-                        and r["expected_rm_epley_0033"] is not None
+                        and r["expected_rm_brzycki"] is not None
                         and r["estimated_rm"] != 0
                         else None
                     ),
@@ -236,20 +228,13 @@ def _compare(pre: dict, post: dict) -> dict:
 
         pre_rm = before["estimated_rm"]
         post_rm = after["estimated_rm"]
-        expected = after["expected_rm_epley_0033"]
+        expected = after["expected_rm_brzycki"]
 
-        if before["already_epley_0033_family"]:
-            if pre_rm != post_rm:
-                issues.append(
-                    f"log {log_id} ({before['exercise']}): familia 0.033 cambió "
-                    f"{pre_rm} -> {post_rm}"
-                )
-        else:
-            if post_rm != expected:
-                issues.append(
-                    f"log {log_id} ({before['exercise']}): post RM {post_rm} != "
-                    f"esperado Epley 0.033 {expected}"
-                )
+        if before["log_kind"] != LOG_KIND_PULL_UP and post_rm != expected:
+            issues.append(
+                f"log {log_id} ({before['exercise']}): post RM {post_rm} != "
+                f"esperado Brzycki {expected}"
+            )
 
         pre_summary = pre.get("summary_sample_percentages")
         post_summary = post.get("summary_sample_percentages")

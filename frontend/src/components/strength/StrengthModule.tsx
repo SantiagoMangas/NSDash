@@ -370,6 +370,12 @@ export function StrengthModule({
       setSaveLogError("Las repeticiones deben ser un número entero mayor a 0.");
       return;
     }
+    if (repsVal > 30) {
+      setSaveLogError(
+        "Las repeticiones no pueden superar 30 para estimar RM con la fórmula de Brzycki.",
+      );
+      return;
+    }
 
     setIsSavingLog(true);
     setSaveLogError(null);
@@ -590,6 +596,8 @@ export function StrengthModule({
                 <input
                   id="log-reps"
                   type="number"
+                  min={1}
+                  max={30}
                   value={reps}
                   onChange={(e) => setReps(e.target.value)}
                   required

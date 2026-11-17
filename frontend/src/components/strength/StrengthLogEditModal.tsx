@@ -56,6 +56,9 @@ function validateForm(
   if (!Number.isInteger(repsVal) || repsVal <= 0) {
     return "Las repeticiones deben ser un número entero mayor a 0.";
   }
+  if (repsVal > 30) {
+    return "Las repeticiones no pueden superar 30 para estimar RM con la fórmula de Brzycki.";
+  }
 
   return null;
 }
@@ -202,6 +205,8 @@ export function StrengthLogEditModal({ open, log, onClose, onSaved }: Props) {
               <input
                 id="edit-log-reps"
                 type="number"
+                min={1}
+                max={30}
                 value={reps}
                 onChange={(event) => setReps(event.target.value)}
                 required

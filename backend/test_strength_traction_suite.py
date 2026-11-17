@@ -25,7 +25,6 @@ from app.strength_percentage import (
     resolve_percentage_curve,
 )
 from app.strength_rm import (
-    EPLEY_RM_ESTIMATED_COEFFICIENT,
     OLY_DLO_EXERCISE_NAMES,
     compute_estimated_rm,
     exercise_with_rm_profile,
@@ -101,9 +100,9 @@ class TestLogKinds:
 
 
 class TestHorizontalTractionRm:
-    def test_epley_coefficient_unified(self):
+    def test_brzycki_profile(self):
         ex = Exercise(name=HORIZONTAL_TRACTION_EXERCISE_NAME, log_kind="rm_estimated")
-        assert resolve_rm_profile(ex) == ("epley", EPLEY_RM_ESTIMATED_COEFFICIENT)
+        assert resolve_rm_profile(ex) == ("brzycki", None)
 
     def test_percentage_curve_peso_muerto(self):
         ex = Exercise(name=HORIZONTAL_TRACTION_EXERCISE_NAME)
@@ -112,7 +111,7 @@ class TestHorizontalTractionRm:
 
     def test_rm_sample_100x5(self):
         ex = exercise_with_rm_profile(Exercise(name=HORIZONTAL_TRACTION_EXERCISE_NAME))
-        assert compute_estimated_rm(100.0, 5, ex) == pytest.approx(100.0 * (1 + 5 * 0.033))
+        assert round(compute_estimated_rm(100.0, 5, ex), 2) == 112.51
 
     def test_percentage_table_matches_deadlift_curve(self):
         ex = Exercise(name=HORIZONTAL_TRACTION_EXERCISE_NAME)
@@ -121,19 +120,19 @@ class TestHorizontalTractionRm:
         assert horizontal == dead
 
 
-class TestRmEstimatedEpleyUnified:
-    def test_all_oly_dlo_profiles_epley_033(self):
+class TestRmEstimatedBrzyckiUnified:
+    def test_all_oly_dlo_profiles_brzycki(self):
         for name in OLY_DLO_EXERCISE_NAMES:
             ex = Exercise(name=name, log_kind="rm_estimated")
-            assert resolve_rm_profile(ex) == ("epley", EPLEY_RM_ESTIMATED_COEFFICIENT)
+            assert resolve_rm_profile(ex) == ("brzycki", None)
 
-    def test_clean_row_80x5_epley(self):
+    def test_clean_row_80x5_brzycki(self):
         ex = exercise_with_rm_profile(Exercise(name="Oly - Clean - Cargada"))
-        assert compute_estimated_rm(80.0, 5, ex) == pytest.approx(80.0 * (1 + 5 * 0.033), abs=0.02)
+        assert round(compute_estimated_rm(80.0, 5, ex), 2) == 90.01
 
-    def test_snatch_70x2_epley(self):
+    def test_snatch_70x2_brzycki(self):
         ex = exercise_with_rm_profile(Exercise(name="Oly - Snatch - Arranque"))
-        assert compute_estimated_rm(70.0, 2, ex) == pytest.approx(70.0 * (1 + 2 * 0.033), abs=0.02)
+        assert round(compute_estimated_rm(70.0, 2, ex), 2) == 72.00
 
 
 class TestDominadasApi:
@@ -224,7 +223,7 @@ class TestHorizontalTractionApi:
         )
         assert res.status_code == 200
         rm = float(res.json()["estimated_rm"])
-        expected = round(60.0 * (1 + 6 * EPLEY_RM_ESTIMATED_COEFFICIENT), 2)
+        expected = round(60.0 / (1.0278 - 0.0278 * 6), 2)
         assert abs(rm - expected) < 0.02
 
         log_id = res.json()["id"]

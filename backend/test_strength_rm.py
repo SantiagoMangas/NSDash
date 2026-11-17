@@ -1,36 +1,86 @@
-"""Tests de compute_estimated_rm (Epley / Brzycki)."""
+"""Tests de RM Brzycki y límite de repeticiones."""
 
 import pytest
+from fastapi.testclient import TestClient
 
+from app.main import app
 from app.models import Exercise
-from app.strength_rm import compute_estimated_rm
+from app.strength_rm import (
+    MAX_RM_REPS,
+    compute_brzycki_rm,
+    compute_estimated_rm,
+    validate_rm_reps,
+)
 
 
-def _exercise(formula_type: str, rm_coefficient: float) -> Exercise:
-    return Exercise(name="Test", formula_type=formula_type, rm_coefficient=rm_coefficient)
+def _br_exercise() -> Exercise:
+    return Exercise(
+        name="Test",
+        formula_type="brzycki",
+        rm_coefficient=None,
+        log_kind="rm_estimated",
+    )
 
 
-class TestComputeEstimatedRm:
-    def test_epley_custom_coefficient(self):
-        # 100 kg x 5 reps, coef 0.033 → 100 * (1 + 5*0.033) = 116.5
-        ex = _exercise("epley", 0.033)
-        assert compute_estimated_rm(100.0, 5, ex) == 116.5
+class TestBrzyckiRmExact:
+    def test_100x1(self):
+        assert round(compute_brzycki_rm(100.0, 1), 2) == 100.00
 
-    def test_epley_unified_rm_estimated_coefficient(self):
-        ex = _exercise("epley", 0.033)
-        assert compute_estimated_rm(80.0, 8, ex) == pytest.approx(80.0 * (1 + 8 * 0.033))
+    def test_100x5(self):
+        assert round(compute_brzycki_rm(100.0, 5), 2) == 112.51
 
-    def test_brzycki_ignores_rm_coefficient(self):
-        ex = _exercise("brzycki", 0.999)
-        # weight / (1.0278 - 0.0278 * reps)
-        expected = 100.0 / (1.0278 - 0.0278 * 5)
-        assert abs(compute_estimated_rm(100.0, 5, ex) - expected) < 1e-6
+    def test_80x8(self):
+        assert round(compute_brzycki_rm(80.0, 8), 2) == 99.33
 
-    def test_brzycki_invalid_reps_raises(self):
-        ex = _exercise("brzycki", 0.03)
-        with pytest.raises(ValueError):
-            compute_estimated_rm(100.0, 40, ex)
+    def test_100x10(self):
+        assert round(compute_brzycki_rm(100.0, 10), 2) == 133.37
 
-    def test_epley_oly_dlo_coefficient_alias(self):
-        ex = _exercise("epley", 0.033)
-        assert compute_estimated_rm(100.0, 5, ex) == 116.5
+    def test_via_exercise_wrapper(self):
+        ex = _br_exercise()
+        assert round(compute_estimated_rm(100.0, 5, ex), 2) == 112.51
+
+
+class TestRmRepsLimit:
+    def test_31_reps_rejected(self):
+        with pytest.raises(ValueError, match="30"):
+            validate_rm_reps(31)
+
+    def test_max_allowed(self):
+        validate_rm_reps(MAX_RM_REPS)
+
+    def test_api_rejects_31_reps(self, client: TestClient, auth_headers: dict):
+        from app.db import SessionLocal
+        from app.models import Athlete
+
+        with SessionLocal() as db:
+            athlete = db.query(Athlete).first()
+            assert athlete is not None
+        res = client.post(
+            "/logs",
+            headers=auth_headers,
+            json={
+                "athlete_id": athlete.id,
+                "exercise_id": 2,
+                "date": "2026-11-17",
+                "weight": 100.0,
+                "reps": 31,
+            },
+        )
+        assert res.status_code == 422
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+@pytest.fixture
+def auth_headers(client: TestClient):
+    import os
+
+    res = client.post(
+        "/auth/login",
+        json={"email": "admin@ns.com", "password": os.environ["ADMIN_INITIAL_PASSWORD"]},
+    )
+    assert res.status_code == 200
+    return {"Authorization": f"Bearer {res.json()['access_token']}"}

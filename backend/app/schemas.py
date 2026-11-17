@@ -331,7 +331,7 @@ class ExerciseResponse(BaseModel):
     id: int
     name: str
     formula_type: str
-    rm_coefficient: float
+    rm_coefficient: Optional[float] = None
     percentage_curve: str
     log_kind: str = "rm_estimated"
 
@@ -356,8 +356,8 @@ class ExerciseCreate(BaseModel):
     @classmethod
     def normalize_formula_type(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if normalized not in ("epley", "brzycki"):
-            raise ValueError("formula_type debe ser epley o brzycki.")
+        if normalized != "brzycki":
+            raise ValueError("formula_type debe ser brzycki.")
         return normalized
 
     @field_validator("percentage_curve")
@@ -378,15 +378,7 @@ class ExerciseCreate(BaseModel):
     def validate_rm_coefficient(cls, value: Optional[float]) -> Optional[float]:
         if value is None:
             return None
-        if not math.isfinite(value) or value <= 0:
-            raise ValueError("rm_coefficient debe ser un número positivo.")
-        return float(value)
-
-    @model_validator(mode="after")
-    def require_coefficient_for_epley(self) -> "ExerciseCreate":
-        if self.formula_type == "epley" and self.rm_coefficient is None:
-            raise ValueError("rm_coefficient es obligatorio para Epley.")
-        return self
+        raise ValueError("Brzycki no usa rm_coefficient; omití el campo.")
 
 
 class TrainingLogCreate(BaseModel):
@@ -396,6 +388,17 @@ class TrainingLogCreate(BaseModel):
     weight: float
     reps: int
     pull_up_modality: Optional[str] = None
+
+    @field_validator("reps")
+    @classmethod
+    def validate_reps_create(cls, value: int) -> int:
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError("Las repeticiones deben ser un número entero mayor a 0")
+        if value > 30:
+            raise ValueError(
+                "Las repeticiones no pueden superar 30 para estimar RM con la fórmula de Brzycki."
+            )
+        return value
 
 
 class TrainingLogUpdate(BaseModel):
@@ -420,6 +423,10 @@ class TrainingLogUpdate(BaseModel):
             return value
         if not isinstance(value, int) or value <= 0:
             raise ValueError("Las repeticiones deben ser un número entero mayor a 0")
+        if value > 30:
+            raise ValueError(
+                "Las repeticiones no pueden superar 30 para estimar RM con la fórmula de Brzycki."
+            )
         return value
 
 

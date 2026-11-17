@@ -31,8 +31,8 @@ def auth_headers(client: TestClient):
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_create_epley_exercise(client: TestClient, auth_headers: dict):
-    name = "Test Epley Catalog UI"
+def test_create_brzycki_exercise(client: TestClient, auth_headers: dict):
+    name = "Test Brzycki Catalog"
     with SessionLocal() as db:
         existing = db.query(Exercise).filter(Exercise.name == name).first()
         if existing:
@@ -43,8 +43,7 @@ def test_create_epley_exercise(client: TestClient, auth_headers: dict):
         "/exercises",
         json={
             "name": name,
-            "formula_type": "epley",
-            "rm_coefficient": 0.02,
+            "formula_type": "brzycki",
             "percentage_curve": "peso_muerto",
         },
         headers=auth_headers,
@@ -52,8 +51,23 @@ def test_create_epley_exercise(client: TestClient, auth_headers: dict):
     assert res.status_code == 200
     body = res.json()
     assert body["name"] == name
-    assert body["formula_type"] == "epley"
+    assert body["formula_type"] == "brzycki"
+    assert body["rm_coefficient"] is None
     assert body["percentage_curve"] == "peso_muerto"
+
+
+def test_reject_epley_on_create(client: TestClient, auth_headers: dict):
+    res = client.post(
+        "/exercises",
+        json={
+            "name": "Test Epley Rejected",
+            "formula_type": "epley",
+            "rm_coefficient": 0.033,
+            "percentage_curve": "sentadilla",
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
 
 
 def test_get_exercise_by_id(client: TestClient, auth_headers: dict):
@@ -67,24 +81,3 @@ def test_get_exercise_by_id(client: TestClient, auth_headers: dict):
 def test_get_exercise_not_found(client: TestClient):
     res = client.get("/exercises/999999")
     assert res.status_code == 404
-
-
-def test_create_brzycki_without_coef(client: TestClient, auth_headers: dict):
-    name = "Test Brzycki Catalog"
-    with SessionLocal() as db:
-        existing = db.query(Exercise).filter(Exercise.name == name).first()
-        if existing:
-            db.delete(existing)
-            db.commit()
-
-    res = client.post(
-        "/exercises",
-        json={
-            "name": name,
-            "formula_type": "brzycki",
-            "percentage_curve": "sentadilla",
-        },
-        headers=auth_headers,
-    )
-    assert res.status_code == 200
-    assert res.json()["formula_type"] == "brzycki"

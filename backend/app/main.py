@@ -38,7 +38,6 @@ from .strength_log_kinds import (
     resolve_log_kind_for_exercise_name,
 )
 from .strength_rm import (
-    DEFAULT_RM_COEFFICIENT,
     apply_exercise_rm_profiles,
     compute_estimated_rm,
     get_exercise_for_log,
@@ -954,15 +953,10 @@ def create_exercise(
             detail="Ya existe un ejercicio con ese nombre.",
         )
 
-    rm_coefficient = (
-        payload.rm_coefficient
-        if payload.formula_type == "epley"
-        else DEFAULT_RM_COEFFICIENT
-    )
     exercise = models.Exercise(
         name=payload.name,
-        formula_type=payload.formula_type,
-        rm_coefficient=rm_coefficient,
+        formula_type="brzycki",
+        rm_coefficient=None,
         percentage_curve=payload.percentage_curve,
         log_kind=resolve_log_kind_for_exercise_name(payload.name),
     )
@@ -1020,7 +1014,10 @@ def _resolve_training_log_values(
         )
     if not math.isfinite(weight) or weight <= 0:
         raise HTTPException(status_code=400, detail="El peso debe ser mayor a 0")
-    estimated_rm = compute_estimated_rm(weight, reps, exercise)
+    try:
+        estimated_rm = round(compute_estimated_rm(weight, reps, exercise), 2)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return float(weight), reps, estimated_rm, None
 
 

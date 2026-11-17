@@ -4,7 +4,7 @@ export type Exercise = {
   id: number;
   name: string;
   formula_type: string;
-  rm_coefficient: number;
+  rm_coefficient: number | null;
   percentage_curve: string;
   log_kind: string;
 };
@@ -24,8 +24,8 @@ export function exercisePayloadHasCatalogMeta(item: unknown): boolean {
   const record = item as Record<string, unknown>;
   return (
     typeof record.formula_type === "string" &&
-    parseOptionalNumber(record.rm_coefficient) !== null &&
-    typeof record.percentage_curve === "string"
+    typeof record.percentage_curve === "string" &&
+    (record.rm_coefficient === null || parseOptionalNumber(record.rm_coefficient) !== null)
   );
 }
 
@@ -37,10 +37,10 @@ function parseExercise(item: unknown): Exercise | null {
   return {
     id: record.id,
     name: record.name,
-    formula_type: hasMeta ? String(record.formula_type) : "epley",
+    formula_type: hasMeta ? String(record.formula_type) : "brzycki",
     rm_coefficient: hasMeta
-      ? (parseOptionalNumber(record.rm_coefficient) as number)
-      : 1 / 30,
+      ? parseOptionalNumber(record.rm_coefficient)
+      : null,
     percentage_curve: hasMeta ? String(record.percentage_curve) : "sentadilla",
     log_kind:
       typeof record.log_kind === "string" ? String(record.log_kind) : "rm_estimated",
@@ -65,8 +65,7 @@ export async function getExercises(): Promise<{
 
 export type ExerciseCreatePayload = {
   name: string;
-  formula_type: "epley" | "brzycki";
-  rm_coefficient?: number;
+  formula_type: "brzycki";
   percentage_curve: string;
 };
 

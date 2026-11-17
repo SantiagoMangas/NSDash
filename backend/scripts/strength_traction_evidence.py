@@ -48,7 +48,7 @@ def main() -> int:
     for name in sorted(PULL_UP_EXERCISE_NAMES):
         print(f"  - {name}")
 
-    print("\n--- OLY/DLO (Epley 0.033) ---")
+    print("\n--- OLY/DLO (Brzycki) ---")
     for name in OLY_DLO_EXERCISE_NAMES:
         prof = resolve_rm_profile(Exercise(name=name, log_kind="rm_estimated"))
         ex = exercise_with_rm_profile(Exercise(name=name))

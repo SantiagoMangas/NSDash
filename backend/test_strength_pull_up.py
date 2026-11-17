@@ -11,25 +11,29 @@ from app.strength_log_kinds import (
     LOG_KIND_RM_ESTIMATED,
 )
 from app.strength_percentage import resolve_percentage_curve
-from app.strength_rm import EPLEY_RM_ESTIMATED_COEFFICIENT, resolve_rm_profile
+from app.strength_rm import compute_estimated_rm, resolve_rm_profile
 
 
 def _ex(name: str, log_kind: str = LOG_KIND_RM_ESTIMATED) -> Exercise:
     return Exercise(
         name=name,
-        formula_type="epley",
-        rm_coefficient=EPLEY_RM_ESTIMATED_COEFFICIENT,
+        formula_type="brzycki",
+        rm_coefficient=None,
         log_kind=log_kind,
     )
 
 
 class TestHorizontalTractionCatalog:
-    def test_rm_coefficient_unified_epley(self):
+    def test_rm_profile_brzycki(self):
         profile = resolve_rm_profile(_ex(HORIZONTAL_TRACTION_EXERCISE_NAME))
-        assert profile == ("epley", EPLEY_RM_ESTIMATED_COEFFICIENT)
+        assert profile == ("brzycki", None)
 
     def test_percentage_curve_peso_muerto(self):
         assert resolve_percentage_curve(_ex(HORIZONTAL_TRACTION_EXERCISE_NAME)) == "peso_muerto"
+
+    def test_sample_60x6_brzycki(self):
+        ex = _ex(HORIZONTAL_TRACTION_EXERCISE_NAME)
+        assert round(compute_estimated_rm(60.0, 6, ex), 2) == 69.69
 
 
 class TestPullUpLogKind:
@@ -54,8 +58,8 @@ class TestPullUpBandNoLoad:
         ex = Exercise(
             name="Traccion Vertical - Dominadas Agarre Neutro",
             log_kind=LOG_KIND_PULL_UP,
-            formula_type="epley",
-            rm_coefficient=0.033,
+            formula_type="brzycki",
+            rm_coefficient=None,
         )
         weight, reps, rm, modality = _resolve_training_log_values(ex, 0.0, 8, "band")
         assert weight == 0.0

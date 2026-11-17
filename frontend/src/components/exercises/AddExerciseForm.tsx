@@ -13,21 +13,15 @@ type Props = {
   onToast: (type: "success" | "error", message: string) => void;
 };
 
-type FormulaChoice = "epley" | "brzycki";
-
 export function AddExerciseForm({ onCreated, onToast }: Props) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [formulaType, setFormulaType] = useState<FormulaChoice>("epley");
-  const [rmCoefficient, setRmCoefficient] = useState("0.033");
   const [percentageCurve, setPercentageCurve] = useState<PercentageCurveKey>("sentadilla");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const resetForm = () => {
     setName("");
-    setFormulaType("epley");
-    setRmCoefficient("0.033");
     setPercentageCurve("sentadilla");
     setError(null);
   };
@@ -43,22 +37,11 @@ export function AddExerciseForm({ onCreated, onToast }: Props) {
       return;
     }
 
-    let coef: number | undefined;
-    if (formulaType === "epley") {
-      const parsed = Number(rmCoefficient.replace(",", "."));
-      if (!Number.isFinite(parsed) || parsed <= 0) {
-        setError("Ingresá un coeficiente Epley válido (número positivo).");
-        return;
-      }
-      coef = parsed;
-    }
-
     setSaving(true);
     try {
       const created = await createExercise({
         name: trimmedName,
-        formula_type: formulaType,
-        rm_coefficient: coef,
+        formula_type: "brzycki",
         percentage_curve: percentageCurve,
       });
       onCreated(created);
@@ -105,6 +88,10 @@ export function AddExerciseForm({ onCreated, onToast }: Props) {
         </button>
       </div>
 
+      <p className="text-xs text-slate-500">
+        RM estimado con fórmula Brzycki (sin coeficiente por ejercicio).
+      </p>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label htmlFor="exercise-name" className="block text-xs text-slate-500 mb-1">
@@ -118,36 +105,6 @@ export function AddExerciseForm({ onCreated, onToast }: Props) {
             required
             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             placeholder="Ej. Peso muerto - Sumo"
-          />
-        </div>
-        <div>
-          <label htmlFor="exercise-formula" className="block text-xs text-slate-500 mb-1">
-            Fórmula RM
-          </label>
-          <select
-            id="exercise-formula"
-            value={formulaType}
-            onChange={(e) => setFormulaType(e.target.value as FormulaChoice)}
-            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            <option value="epley">Epley</option>
-            <option value="brzycki">Brzycki</option>
-          </select>
-        </div>
-        <div>
-          <label htmlFor="exercise-coef" className="block text-xs text-slate-500 mb-1">
-            Coeficiente Epley
-          </label>
-          <input
-            id="exercise-coef"
-            type="text"
-            inputMode="decimal"
-            value={rmCoefficient}
-            onChange={(e) => setRmCoefficient(e.target.value)}
-            disabled={formulaType === "brzycki"}
-            required={formulaType === "epley"}
-            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
-            placeholder="0.033"
           />
         </div>
         <div className="sm:col-span-2">

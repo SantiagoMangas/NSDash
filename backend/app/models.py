@@ -83,8 +83,8 @@ class Exercise(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    rm_coefficient = Column(Float, nullable=False, default=1.0 / 30.0)
-    formula_type = Column(String(20), nullable=False, default="epley")
+    rm_coefficient = Column(Float, nullable=True, default=None)
+    formula_type = Column(String(20), nullable=False, default="brzycki")
     percentage_curve = Column(String(32), nullable=False, default="sentadilla")
     log_kind = Column(String(32), nullable=False, default="rm_estimated")
 

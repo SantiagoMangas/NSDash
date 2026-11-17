@@ -84,9 +84,9 @@ def main() -> int:
     oly_dlo_in_db = sum(
         1
         for name in OLY_DLO_EXERCISE_NAMES
-        if name in by_name and by_name[name].get("formula_type") == "epley"
+        if name in by_name and by_name[name].get("formula_type") == "brzycki"
     )
-    print(f"\nOly/DLO con epley en API/DB: {oly_dlo_in_db}/{len(OLY_DLO_EXERCISE_NAMES)}")
+    print(f"\nOly/DLO con brzycki en API/DB: {oly_dlo_in_db}/{len(OLY_DLO_EXERCISE_NAMES)}")
     return 0
 
 
