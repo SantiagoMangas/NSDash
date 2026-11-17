@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import uuid
@@ -2030,6 +2031,216 @@ def post_calculate_tempo_run(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+def _build_tempo_run_session_summary(result: dict) -> str:
+    """Resumen en una línea para el historial (detalle en snapshot)."""
+    cod = result.get("cod", "NO")
+    parts = [result["entrenamiento"], f"COD {cod}"]
+    if cod == "SI":
+        parts.append(f"Shuttles {int(result['shuttles'])}")
+    vol = result["volumen_trabajo_m"]
+    vol_display = int(vol) if float(vol).is_integer() else vol
+    parts.append(f"Volumen trabajo {vol_display} m")
+    return " · ".join(parts)
+
+
+def _tempo_run_summary_from_row(row: models.TempoRunSession) -> str:
+    try:
+        payload = json.loads(row.snapshot_json)
+        result = payload.get("result")
+        if isinstance(result, dict):
+            return _build_tempo_run_session_summary(result)
+    except (json.JSONDecodeError, TypeError, KeyError):
+        pass
+    return row.summary
+
+
+@app.post(
+    "/tempo-run-sessions",
+    response_model=schemas.TempoRunSessionSummary,
+)
+def create_tempo_run_session(
+    data: schemas.TempoRunSessionSave,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(auth.require_full_session),
+) -> dict:
+    """Persiste una sesión Tempo Run calculada para un atleta."""
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == data.athlete_id).first()
+    access.assert_can_access_athlete(user, athlete)
+
+    payload = data.payload
+    try:
+        calculated = tempo_run.calculate_tempo_run(
+            reference_kmh=payload.reference_kmh,
+            intensidad_pct_min=payload.intensidad_pct_min,
+            intensidad_pct_max=payload.intensidad_pct_max,
+            distancia_m=payload.distancia_m,
+            pausa_m=payload.pausa_m,
+            series=payload.series,
+            bloques=payload.bloques,
+            ratio=payload.ratio,
+            entrenamiento=payload.entrenamiento,
+            cod=payload.cod,
+            shuttles=payload.shuttles,
+            fecha=payload.fecha,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    session_date = payload.fecha or calculated.get("fecha")
+    if session_date is None:
+        raise HTTPException(status_code=400, detail="La fecha de la sesión es obligatoria.")
+
+    summary = _build_tempo_run_session_summary(calculated)
+    result_for_json = {
+        **calculated,
+        "fecha": calculated["fecha"].isoformat() if calculated.get("fecha") is not None else None,
+    }
+    snapshot_json = json.dumps(
+        {"request": payload.model_dump(mode="json"), "result": result_for_json},
+        ensure_ascii=False,
+    )
+
+    db_session = models.TempoRunSession(
+        athlete_id=data.athlete_id,
+        date=session_date,
+        entrenamiento=calculated["entrenamiento"],
+        reference_kmh=payload.reference_kmh,
+        summary=summary,
+        snapshot_json=snapshot_json,
+    )
+    db.add(db_session)
+    db.commit()
+    db.refresh(db_session)
+
+    return {
+        "id": db_session.id,
+        "athlete_id": db_session.athlete_id,
+        "date": db_session.date,
+        "entrenamiento": db_session.entrenamiento,
+        "reference_kmh": db_session.reference_kmh,
+        "summary": db_session.summary,
+    }
+
+
+TRAINING_SESSION_SOURCE_TEMPO_RUN = "tempo_run"
+
+
+def _training_sessions_for_athlete(db: Session, athlete_id: int) -> list[dict]:
+    """Agrega sesiones guardadas de todas las calculadoras (extensible)."""
+    items: list[dict] = []
+
+    tempo_rows = (
+        db.query(models.TempoRunSession)
+        .filter(models.TempoRunSession.athlete_id == athlete_id)
+        .order_by(models.TempoRunSession.date.desc(), models.TempoRunSession.id.desc())
+        .all()
+    )
+    for row in tempo_rows:
+        items.append(
+            {
+                "id": row.id,
+                "athlete_id": row.athlete_id,
+                "date": row.date,
+                "calculator": "Tempo Run",
+                "entrenamiento": "Tempo Run",
+                "reference_kmh": row.reference_kmh,
+                "summary": _tempo_run_summary_from_row(row),
+                "source": TRAINING_SESSION_SOURCE_TEMPO_RUN,
+            }
+        )
+
+    items.sort(key=lambda row: (row["date"], row["id"]), reverse=True)
+    return items
+
+
+@app.get(
+    "/athletes/{athlete_id}/training-sessions",
+    response_model=list[schemas.TrainingSessionHistoryItem],
+)
+def list_training_sessions(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(auth.require_full_session),
+) -> list[dict]:
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    access.assert_can_access_athlete(user, athlete)
+    return _training_sessions_for_athlete(db, athlete_id)
+
+
+@app.get(
+    "/athletes/{athlete_id}/tempo-run-sessions",
+    response_model=list[schemas.TempoRunSessionSummary],
+)
+def list_tempo_run_sessions(
+    athlete_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(auth.require_full_session),
+) -> list[dict]:
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == athlete_id).first()
+    access.assert_can_access_athlete(user, athlete)
+
+    sessions = (
+        db.query(models.TempoRunSession)
+        .filter(models.TempoRunSession.athlete_id == athlete_id)
+        .order_by(models.TempoRunSession.date.desc(), models.TempoRunSession.id.desc())
+        .all()
+    )
+    return [
+        {
+            "id": row.id,
+            "athlete_id": row.athlete_id,
+            "date": row.date,
+            "entrenamiento": row.entrenamiento,
+            "reference_kmh": row.reference_kmh,
+            "summary": row.summary,
+        }
+        for row in sessions
+    ]
+
+
+@app.get(
+    "/tempo-run-sessions/{session_id}",
+    response_model=schemas.TempoRunSessionDetail,
+)
+def get_tempo_run_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(auth.require_full_session),
+) -> dict:
+    row = db.query(models.TempoRunSession).filter(models.TempoRunSession.id == session_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada.")
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == row.athlete_id).first()
+    access.assert_can_access_athlete(user, athlete)
+    try:
+        snapshot = json.loads(row.snapshot_json)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail="Snapshot de sesión inválido.") from e
+    return {
+        "id": row.id,
+        "athlete_id": row.athlete_id,
+        "date": row.date,
+        "reference_kmh": row.reference_kmh,
+        "snapshot": snapshot,
+    }
+
+
+@app.delete("/tempo-run-sessions/{session_id}")
+def delete_tempo_run_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(auth.require_full_session),
+) -> dict[str, str]:
+    row = db.query(models.TempoRunSession).filter(models.TempoRunSession.id == session_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada.")
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == row.athlete_id).first()
+    access.assert_can_access_athlete(user, athlete)
+    db.delete(row)
+    db.commit()
+    return {"status": "deleted"}
 
 
 @app.post(

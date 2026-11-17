@@ -1013,6 +1013,41 @@ class TempoRunCalculateResponse(BaseModel):
     volumen_trabajo_m: float
 
 
+class TempoRunSessionSave(BaseModel):
+    athlete_id: int
+    payload: TempoRunCalculateRequest
+
+
+class TempoRunSessionSummary(BaseModel):
+    id: int
+    athlete_id: int
+    date: Date
+    entrenamiento: str
+    reference_kmh: float
+    summary: str
+
+
+class TrainingSessionHistoryItem(BaseModel):
+    """Fila del historial unificado de calculadoras (entrenamientos guardados)."""
+
+    id: int
+    athlete_id: int
+    date: Date
+    calculator: str
+    entrenamiento: str
+    reference_kmh: float
+    summary: str
+    source: str
+
+
+class TempoRunSessionDetail(BaseModel):
+    id: int
+    athlete_id: int
+    date: Date
+    reference_kmh: float
+    snapshot: dict
+
+
 class RsaIntensityResult(BaseModel):
     velocidad_kmh: float
     ritmo_str: str

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getVelocityDashboard } from "@/lib/api/speed";
 import { getVamProgress } from "@/lib/api/vam";
 import type { VelocityDashboard, VamProgress } from "@/lib/types";
@@ -21,6 +21,8 @@ export function useResistenciaData(
   const [progress, setProgress] = useState<VamProgress | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Evita pantalla de carga completa al refrescar historiales (p. ej. tras guardar Tempo Run). */
+  const loadedAthleteIdRef = useRef<number | null>(null);
 
   const refreshDashboard = useCallback(async () => {
     if (athleteId === null) return;
@@ -35,6 +37,7 @@ export function useResistenciaData(
 
   useEffect(() => {
     if (athleteId === null) {
+      loadedAthleteIdRef.current = null;
       setDashboard(null);
       setProgress(null);
       setError(null);
@@ -43,12 +46,15 @@ export function useResistenciaData(
     }
 
     let cancelled = false;
+    const blockingLoad = loadedAthleteIdRef.current !== athleteId;
 
     async function load() {
       if (athleteId === null) return;
       const id = athleteId;
 
-      setLoading(true);
+      if (blockingLoad) {
+        setLoading(true);
+      }
       setError(null);
 
       const [dashboardResult, progressResult] = await Promise.allSettled([
@@ -79,6 +85,7 @@ export function useResistenciaData(
         setError(null);
       }
 
+      loadedAthleteIdRef.current = id;
       setLoading(false);
     }
 

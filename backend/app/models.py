@@ -165,3 +165,15 @@ class RsaSprintTime(Base):
     rsa_fatigue_test_id = Column(Integer, ForeignKey("rsa_fatigue_tests.id"), nullable=False)
     sprint_order = Column(Integer, nullable=False)
     tiempo_s = Column(Float, nullable=False)
+
+
+class TempoRunSession(Base):
+    __tablename__ = "tempo_run_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    athlete_id = Column(Integer, ForeignKey("athletes.id"), nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    entrenamiento = Column(String(64), nullable=False)
+    reference_kmh = Column(Float, nullable=False)
+    summary = Column(String(512), nullable=False)
+    snapshot_json = Column(Text, nullable=False)

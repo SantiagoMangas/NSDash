@@ -1,4 +1,4 @@
-import { post } from "@/lib/api/client";
+import { del, get, post } from "@/lib/api/client";
 
 export type MasTrainingIntensityResult = {
   velocidad_kmh: number;
@@ -209,6 +209,89 @@ export async function calculateTempoRun(
   payload: TempoRunCalculateRequest,
 ): Promise<TempoRunCalculateResponse> {
   return post("/training-sessions/tempo-run/calculate", payload);
+}
+
+export type TempoRunSessionSummary = {
+  id: number;
+  athlete_id: number;
+  date: string;
+  entrenamiento: string;
+  reference_kmh: number;
+  summary: string;
+};
+
+export async function saveTempoRunSession(
+  athleteId: number,
+  payload: TempoRunCalculateRequest,
+): Promise<TempoRunSessionSummary> {
+  return post("/tempo-run-sessions", { athlete_id: athleteId, payload });
+}
+
+export async function getTempoRunSessions(athleteId: number): Promise<TempoRunSessionSummary[]> {
+  return get(`/athletes/${athleteId}/tempo-run-sessions`, { cache: "no-store" });
+}
+
+export async function deleteTempoRunSession(sessionId: number): Promise<void> {
+  await del(`/tempo-run-sessions/${sessionId}`);
+}
+
+export type TempoRunSessionDetailResponse = {
+  id: number;
+  athlete_id: number;
+  date: string;
+  reference_kmh: number;
+  snapshot: {
+    request: TempoRunCalculateRequest;
+    result: TempoRunCalculateResponse;
+  };
+};
+
+export async function getTempoRunSessionDetail(sessionId: number): Promise<TempoRunSessionDetailResponse> {
+  return get(`/tempo-run-sessions/${sessionId}`, { cache: "no-store" });
+}
+
+export type TrainingSessionHistoryItem = {
+  id: number;
+  athlete_id: number;
+  date: string;
+  calculator: string;
+  entrenamiento: string;
+  reference_kmh: number;
+  summary: string;
+  source: string;
+};
+
+function mapTempoSessionsToHistory(tempo: TempoRunSessionSummary[]): TrainingSessionHistoryItem[] {
+  return tempo.map((row) => ({
+    id: row.id,
+    athlete_id: row.athlete_id,
+    date: row.date,
+    calculator: "Tempo Run",
+    entrenamiento: "Tempo Run",
+    reference_kmh: row.reference_kmh,
+    summary: row.summary,
+    source: "tempo_run",
+  }));
+}
+
+export async function getTrainingSessions(athleteId: number): Promise<TrainingSessionHistoryItem[]> {
+  try {
+    return await get(`/athletes/${athleteId}/training-sessions`, { cache: "no-store" });
+  } catch (err: unknown) {
+    const status = (err as { status?: number }).status;
+    if (status === 404) {
+      return mapTempoSessionsToHistory(await getTempoRunSessions(athleteId));
+    }
+    throw err;
+  }
+}
+
+export async function deleteTrainingSession(item: TrainingSessionHistoryItem): Promise<void> {
+  if (item.source === "tempo_run") {
+    await deleteTempoRunSession(item.id);
+    return;
+  }
+  throw new Error(`Tipo de sesión no soportado: ${item.source}`);
 }
 
 export type RsaCalculateRequest = {

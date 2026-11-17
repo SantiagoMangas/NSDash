@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 type Props = {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   open: boolean;
   onToggle: () => void;
   countLabel?: string | null;
@@ -30,7 +30,7 @@ export function MetricsCollapsibleHistory({
       >
         <div className="min-w-0">
           <h3 className="text-sm font-medium text-slate-700">{title}</h3>
-          <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>
+          {subtitle ? <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p> : null}
           {countLabel && !open ? (
             <p className="text-xs text-slate-400 mt-1">{countLabel}</p>
           ) : null}

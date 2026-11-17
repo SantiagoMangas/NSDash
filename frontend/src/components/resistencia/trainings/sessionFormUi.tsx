@@ -74,6 +74,32 @@ export function CalculateButton({ loading }: { loading: boolean }) {
   );
 }
 
+export function SessionFormActions({
+  loading,
+  saving,
+  canSave,
+  onSave,
+}: {
+  loading: boolean;
+  saving: boolean;
+  canSave: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+      <CalculateButton loading={loading} />
+      <button
+        type="button"
+        disabled={!canSave || saving || loading}
+        onClick={onSave}
+        className="inline-flex items-center justify-center rounded-2xl border border-indigo-200 bg-white px-5 py-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {saving ? "Guardando..." : "Guardar en el atleta"}
+      </button>
+    </div>
+  );
+}
+
 export function FormError({ message }: { message: string | null }) {
   if (!message) return null;
   return (
