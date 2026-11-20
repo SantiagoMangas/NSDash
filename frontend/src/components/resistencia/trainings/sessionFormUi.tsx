@@ -26,6 +26,17 @@ export function inputClassName(disabled = false): string {
   }`;
 }
 
+/** Inputs compactos (misma escala que Tempo Run). */
+export const compactInputCls =
+  "w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60";
+
+export const compactDateInputCls =
+  "w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-200";
+
+export function compactInputClassName(disabled = false): string {
+  return disabled ? `${compactInputCls} cursor-not-allowed opacity-60` : compactInputCls;
+}
+
 export function Field({
   id,
   label,
@@ -41,6 +52,105 @@ export function Field({
         {label}
       </label>
       {children}
+    </div>
+  );
+}
+
+export function CompactField({
+  id,
+  label,
+  children,
+}: {
+  id?: string;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <label htmlFor={id} className="block text-[11px] font-medium text-slate-500 mb-0.5">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+type MinMaxPair = {
+  velocidad_kmh: number;
+  ritmo_str: string;
+  trabajo_s?: number;
+  trabajo_str?: string;
+  pausa_s?: number;
+  pausa_str?: string;
+};
+
+export function InlineMinMaxVelocityRitmo({ min, max }: { min: MinMaxPair; max: MinMaxPair }) {
+  return (
+    <div className="col-span-full grid gap-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-2.5 py-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="hidden min-w-0 lg:block" aria-hidden="true" />
+      <div className="hidden min-w-0 lg:block" aria-hidden="true" />
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Velocidad</p>
+        <p className="text-xs text-slate-800">
+          <span className="text-slate-500">Mín</span> {min.velocidad_kmh.toFixed(2)} km/h
+        </p>
+        <p className="text-xs text-slate-800">
+          <span className="text-slate-500">Máx</span> {max.velocidad_kmh.toFixed(2)} km/h
+        </p>
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Ritmo</p>
+        <p className="text-xs text-slate-800">
+          <span className="text-slate-500">Mín</span> {min.ritmo_str}
+        </p>
+        <p className="text-xs text-slate-800">
+          <span className="text-slate-500">Máx</span> {max.ritmo_str}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export function InlineMinMaxTrabajoPausa({ min, max }: { min: MinMaxPair; max: MinMaxPair }) {
+  const trabajoMin = min.trabajo_str ?? (min.trabajo_s != null ? `${min.trabajo_s.toFixed(2)} s` : "—");
+  const trabajoMax = max.trabajo_str ?? (max.trabajo_s != null ? `${max.trabajo_s.toFixed(2)} s` : "—");
+  const pausaMin = min.pausa_str ?? (min.pausa_s != null ? `${min.pausa_s.toFixed(2)} s` : "—");
+  const pausaMax = max.pausa_str ?? (max.pausa_s != null ? `${max.pausa_s.toFixed(2)} s` : "—");
+
+  return (
+    <div className="col-span-full grid gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-600">Trabajo</p>
+        <p className="text-xs text-slate-800">
+          <span className="text-slate-500">Mín</span> {trabajoMin}
+          {min.trabajo_s != null && min.trabajo_str ? (
+            <span className="text-slate-500"> ({min.trabajo_s.toFixed(2)} s)</span>
+          ) : null}
+        </p>
+        <p className="text-xs text-slate-800">
+          <span className="text-slate-500">Máx</span> {trabajoMax}
+          {max.trabajo_s != null && max.trabajo_str ? (
+            <span className="text-slate-500"> ({max.trabajo_s.toFixed(2)} s)</span>
+          ) : null}
+        </p>
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-600">Pausa</p>
+        <p className="text-xs text-slate-800">
+          <span className="text-slate-500">Mín</span> {pausaMin}
+          {min.pausa_s != null && min.pausa_str ? (
+            <span className="text-slate-500"> ({min.pausa_s.toFixed(2)} s)</span>
+          ) : null}
+        </p>
+        <p className="text-xs text-slate-800">
+          <span className="text-slate-500">Máx</span> {pausaMax}
+          {max.pausa_s != null && max.pausa_str ? (
+            <span className="text-slate-500"> ({max.pausa_s.toFixed(2)} s)</span>
+          ) : null}
+        </p>
+      </div>
+      <div className="hidden min-w-0 lg:block" aria-hidden="true" />
+      <div className="hidden min-w-0 lg:block" aria-hidden="true" />
     </div>
   );
 }

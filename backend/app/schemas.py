@@ -1,5 +1,5 @@
 import math
-from datetime import date as Date
+from datetime import date as Date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -1045,6 +1045,7 @@ class TrainingSessionHistoryItem(BaseModel):
     reference_kmh: float
     summary: str
     source: str
+    saved_at: Optional[datetime] = None
 
 
 class TempoRunSessionDetail(BaseModel):
@@ -1052,6 +1053,33 @@ class TempoRunSessionDetail(BaseModel):
     athlete_id: int
     date: Date
     reference_kmh: float
+    snapshot: dict
+
+
+class SavedTrainingSessionSave(BaseModel):
+    athlete_id: int
+    source: str
+    date: Date
+    payload: dict
+
+
+class SavedTrainingSessionSummary(BaseModel):
+    id: int
+    athlete_id: int
+    date: Date
+    calculator: str
+    entrenamiento: str
+    reference_kmh: float
+    summary: str
+    source: str
+
+
+class SavedTrainingSessionDetail(BaseModel):
+    id: int
+    athlete_id: int
+    date: Date
+    reference_kmh: float
+    source: str
     snapshot: dict
 
 

@@ -25,7 +25,7 @@ type Props = {
   loading: boolean;
   refreshKey?: number;
   onDashboardRefresh: () => Promise<void>;
-  onTempoRunSaved?: () => void;
+  onTrainingSessionSaved?: () => void;
 };
 
 export function TrainingsSection({
@@ -34,7 +34,7 @@ export function TrainingsSection({
   loading,
   refreshKey = 0,
   onDashboardRefresh,
-  onTempoRunSaved,
+  onTrainingSessionSaved,
 }: Props) {
   // HIIT / HIIT Continuos: VAM → 30-15 → Yo-Yo
   const hiitReferenceTable =
@@ -131,26 +131,46 @@ export function TrainingsSection({
               <p className="text-xs text-slate-400 mt-0.5">Armá el entrenamiento del día.</p>
             </div>
             <EvaluationAccordion title="HIIT Corto">
-              <HiitCortoForm hiitReferenceTable={hiitReferenceTable} />
+              <HiitCortoForm
+                athleteId={athleteId}
+                hiitReferenceTable={hiitReferenceTable}
+                onSessionSaved={onTrainingSessionSaved}
+              />
             </EvaluationAccordion>
             <EvaluationAccordion title="HIIT Largo">
-              <HiitLargoForm hiitReferenceTable={hiitReferenceTable} />
+              <HiitLargoForm
+                athleteId={athleteId}
+                hiitReferenceTable={hiitReferenceTable}
+                onSessionSaved={onTrainingSessionSaved}
+              />
             </EvaluationAccordion>
             <EvaluationAccordion title="HIIT Continuo">
-              <HiitContinuoForm hiitReferenceTable={hiitReferenceTable} />
+              <HiitContinuoForm
+                athleteId={athleteId}
+                hiitReferenceTable={hiitReferenceTable}
+                onSessionSaved={onTrainingSessionSaved}
+              />
             </EvaluationAccordion>
             <EvaluationAccordion title="MAS Training">
-              <MasTrainingForm masReferenceTable={masReferenceTable} />
+              <MasTrainingForm
+                athleteId={athleteId}
+                masReferenceTable={masReferenceTable}
+                onSessionSaved={onTrainingSessionSaved}
+              />
             </EvaluationAccordion>
             <EvaluationAccordion title="Tempo Run">
               <TempoRunForm
                 athleteId={athleteId}
                 speedTestTable={speedTestTable}
-                onSessionSaved={onTempoRunSaved}
+                onSessionSaved={onTrainingSessionSaved}
               />
             </EvaluationAccordion>
             <EvaluationAccordion title="RSA">
-              <RsaSessionForm speedTestTable={speedTestTable} />
+              <RsaSessionForm
+                athleteId={athleteId}
+                speedTestTable={speedTestTable}
+                onSessionSaved={onTrainingSessionSaved}
+              />
             </EvaluationAccordion>
           </div>
 

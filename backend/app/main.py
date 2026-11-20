@@ -2,6 +2,7 @@ import json
 import math
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -22,6 +23,7 @@ from .panel_helpers import (
     validate_athlete_relations,
 )
 from .session_calculators import hiit_continuo, hiit_corto, hiit_largo, mas_training, rsa, tempo_run
+from . import training_session_persist
 from .db import Base, SessionLocal, engine, get_db, get_db_backend_name, log_db_startup_info
 from .sqlite_startup_backup import try_backup_sqlite_before_migrations
 from .demo_seed import seed_showcase_data
@@ -324,6 +326,21 @@ def migrate_training_log_pull_up_modality_column() -> None:
             )
 
 
+def migrate_training_session_saved_at() -> None:
+    """Marca cuándo se guardó cada sesión (orden real del historial)."""
+    for table in ("tempo_run_sessions", "saved_training_sessions"):
+        existing_columns = {column["name"] for column in inspect(engine).get_columns(table)}
+        with engine.begin() as connection:
+            if "saved_at" not in existing_columns:
+                connection.execute(text(f"ALTER TABLE {table} ADD COLUMN saved_at DATETIME"))
+            connection.execute(
+                text(
+                    f"UPDATE {table} SET saved_at = datetime(date, '+' || id || ' seconds') "
+                    "WHERE saved_at IS NULL"
+                )
+            )
+
+
 def apply_exercise_log_kinds(db: Session) -> None:
     for exercise in db.query(models.Exercise).all():
         exercise.log_kind = resolve_log_kind_for_exercise_name(exercise.name)
@@ -393,6 +410,7 @@ def on_startup() -> None:
     migrate_exercise_percentage_curve_column()
     migrate_exercise_log_kind_column()
     migrate_training_log_pull_up_modality_column()
+    migrate_training_session_saved_at()
     with SessionLocal() as db:
         if db.query(models.User).count() == 0:
             initial_password = get_admin_initial_password()
@@ -2031,15 +2049,8 @@ def post_calculate_tempo_run(
 
 
 def _build_tempo_run_session_summary(result: dict) -> str:
-    """Resumen en una línea para el historial (detalle en snapshot)."""
-    cod = result.get("cod", "NO")
-    parts = [result["entrenamiento"], f"COD {cod}"]
-    if cod == "SI":
-        parts.append(f"Shuttles {int(result['shuttles'])}")
-    vol = result["volumen_trabajo_m"]
-    vol_display = int(vol) if float(vol).is_integer() else vol
-    parts.append(f"Volumen trabajo {vol_display} m")
-    return " · ".join(parts)
+    """Resumen corto para historial (tipo de entrenamiento va en la columna título)."""
+    return training_session_persist.build_session_summary("tempo_run", result)
 
 
 def _tempo_run_summary_from_row(row: models.TempoRunSession) -> str:
@@ -2048,6 +2059,17 @@ def _tempo_run_summary_from_row(row: models.TempoRunSession) -> str:
         result = payload.get("result")
         if isinstance(result, dict):
             return _build_tempo_run_session_summary(result)
+    except (json.JSONDecodeError, TypeError, KeyError):
+        pass
+    return row.summary
+
+
+def _saved_summary_from_row(row: models.SavedTrainingSession) -> str:
+    try:
+        snapshot = json.loads(row.snapshot_json)
+        result = snapshot.get("result")
+        if isinstance(result, dict):
+            return training_session_persist.build_session_summary(row.source, result)
     except (json.JSONDecodeError, TypeError, KeyError):
         pass
     return row.summary
@@ -2099,6 +2121,7 @@ def create_tempo_run_session(
         ensure_ascii=False,
     )
 
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     db_session = models.TempoRunSession(
         athlete_id=data.athlete_id,
         date=session_date,
@@ -2106,6 +2129,7 @@ def create_tempo_run_session(
         reference_kmh=payload.reference_kmh,
         summary=summary,
         snapshot_json=snapshot_json,
+        saved_at=now_utc,
     )
     db.add(db_session)
     db.commit()
@@ -2122,6 +2146,22 @@ def create_tempo_run_session(
 
 
 TRAINING_SESSION_SOURCE_TEMPO_RUN = "tempo_run"
+
+
+def _session_history_sort_key(row: dict) -> tuple[datetime, int, int]:
+    """Orden: último guardado primero (saved_at real; id solo desempata misma tabla)."""
+    saved_at = row.get("saved_at")
+    if isinstance(saved_at, datetime):
+        base = saved_at
+    else:
+        session_date = row["date"]
+        if isinstance(session_date, datetime):
+            base = session_date
+        else:
+            base = datetime.combine(session_date, datetime.min.time())
+    # source tie-break evita mezclar ids entre tempo_run y saved_training_sessions
+    source_rank = 0 if row.get("source") == TRAINING_SESSION_SOURCE_TEMPO_RUN else 1
+    return (base, row["id"], source_rank)
 
 
 def _training_sessions_for_athlete(db: Session, athlete_id: int) -> list[dict]:
@@ -2141,14 +2181,37 @@ def _training_sessions_for_athlete(db: Session, athlete_id: int) -> list[dict]:
                 "athlete_id": row.athlete_id,
                 "date": row.date,
                 "calculator": "Tempo Run",
-                "entrenamiento": "Tempo Run",
+                "entrenamiento": row.entrenamiento,
                 "reference_kmh": row.reference_kmh,
                 "summary": _tempo_run_summary_from_row(row),
                 "source": TRAINING_SESSION_SOURCE_TEMPO_RUN,
+                "saved_at": row.saved_at,
             }
         )
 
-    items.sort(key=lambda row: (row["date"], row["id"]), reverse=True)
+    saved_rows = (
+        db.query(models.SavedTrainingSession)
+        .filter(models.SavedTrainingSession.athlete_id == athlete_id)
+        .order_by(models.SavedTrainingSession.date.desc(), models.SavedTrainingSession.id.desc())
+        .all()
+    )
+    for row in saved_rows:
+        calculator = training_session_persist.CALCULATOR_LABELS.get(row.source, row.source)
+        items.append(
+            {
+                "id": row.id,
+                "athlete_id": row.athlete_id,
+                "date": row.date,
+                "calculator": calculator,
+                "entrenamiento": row.entrenamiento,
+                "reference_kmh": row.reference_kmh,
+                "summary": _saved_summary_from_row(row),
+                "source": row.source,
+                "saved_at": row.saved_at,
+            }
+        )
+
+    items.sort(key=_session_history_sort_key, reverse=True)
     return items
 
 
@@ -2231,6 +2294,115 @@ def delete_tempo_run_session(
     user: models.User = Depends(auth.require_full_session),
 ) -> dict[str, str]:
     row = db.query(models.TempoRunSession).filter(models.TempoRunSession.id == session_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada.")
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == row.athlete_id).first()
+    access.assert_can_access_athlete(user, athlete)
+    db.delete(row)
+    db.commit()
+    return {"status": "deleted"}
+
+
+@app.post(
+    "/saved-training-sessions",
+    response_model=schemas.SavedTrainingSessionSummary,
+)
+def create_saved_training_session(
+    data: schemas.SavedTrainingSessionSave,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(auth.require_full_session),
+) -> dict:
+    """Persiste una sesión calculada (MAS, HIIT, RSA, etc.) para un atleta."""
+    if data.source not in training_session_persist.VALID_SOURCES:
+        raise HTTPException(status_code=400, detail="Tipo de calculadora no soportado.")
+
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == data.athlete_id).first()
+    access.assert_can_access_athlete(user, athlete)
+
+    try:
+        calculated = training_session_persist.recalculate_training_session(data.source, data.payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    reference_kmh = data.payload.get("reference_kmh")
+    if reference_kmh is None or not isinstance(reference_kmh, (int, float)):
+        raise HTTPException(status_code=400, detail="reference_kmh es obligatorio en el payload.")
+
+    summary = training_session_persist.build_session_summary(data.source, calculated)
+    entrenamiento = training_session_persist.entrenamiento_label(data.source, calculated)
+    calculator = training_session_persist.CALCULATOR_LABELS.get(data.source, data.source)
+    snapshot_json = training_session_persist.build_snapshot_json(data.source, data.payload, calculated)
+
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    db_session = models.SavedTrainingSession(
+        athlete_id=data.athlete_id,
+        date=data.date,
+        source=data.source,
+        entrenamiento=entrenamiento,
+        reference_kmh=float(reference_kmh),
+        summary=summary,
+        snapshot_json=snapshot_json,
+        saved_at=now_utc,
+    )
+    db.add(db_session)
+    db.commit()
+    db.refresh(db_session)
+
+    return {
+        "id": db_session.id,
+        "athlete_id": db_session.athlete_id,
+        "date": db_session.date,
+        "calculator": calculator,
+        "entrenamiento": db_session.entrenamiento,
+        "reference_kmh": db_session.reference_kmh,
+        "summary": db_session.summary,
+        "source": db_session.source,
+    }
+
+
+@app.get(
+    "/saved-training-sessions/{session_id}",
+    response_model=schemas.SavedTrainingSessionDetail,
+)
+def get_saved_training_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(auth.require_full_session),
+) -> dict:
+    row = (
+        db.query(models.SavedTrainingSession)
+        .filter(models.SavedTrainingSession.id == session_id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada.")
+    athlete = db.query(models.Athlete).filter(models.Athlete.id == row.athlete_id).first()
+    access.assert_can_access_athlete(user, athlete)
+    try:
+        snapshot = json.loads(row.snapshot_json)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail="Snapshot de sesión inválido.") from e
+    return {
+        "id": row.id,
+        "athlete_id": row.athlete_id,
+        "date": row.date,
+        "reference_kmh": row.reference_kmh,
+        "source": row.source,
+        "snapshot": snapshot,
+    }
+
+
+@app.delete("/saved-training-sessions/{session_id}")
+def delete_saved_training_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(auth.require_full_session),
+) -> dict[str, str]:
+    row = (
+        db.query(models.SavedTrainingSession)
+        .filter(models.SavedTrainingSession.id == session_id)
+        .first()
+    )
     if row is None:
         raise HTTPException(status_code=404, detail="Sesión no encontrada.")
     athlete = db.query(models.Athlete).filter(models.Athlete.id == row.athlete_id).first()

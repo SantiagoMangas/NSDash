@@ -259,6 +259,7 @@ export type TrainingSessionHistoryItem = {
   reference_kmh: number;
   summary: string;
   source: string;
+  saved_at?: string | null;
 };
 
 function mapTempoSessionsToHistory(tempo: TempoRunSessionSummary[]): TrainingSessionHistoryItem[] {
@@ -286,12 +287,59 @@ export async function getTrainingSessions(athleteId: number): Promise<TrainingSe
   }
 }
 
+export type SavedTrainingSessionSource =
+  | "mas_training"
+  | "hiit_corto"
+  | "hiit_largo"
+  | "hiit_continuo_largo"
+  | "hiit_continuo_corto"
+  | "rsa";
+
+export type SavedTrainingSessionSummary = TrainingSessionHistoryItem;
+
+export async function saveTrainingSession(
+  athleteId: number,
+  source: SavedTrainingSessionSource,
+  date: string,
+  payload: Record<string, unknown>,
+): Promise<SavedTrainingSessionSummary> {
+  return post("/saved-training-sessions", {
+    athlete_id: athleteId,
+    source,
+    date,
+    payload,
+  });
+}
+
+export type SavedTrainingSessionDetailResponse = {
+  id: number;
+  athlete_id: number;
+  date: string;
+  reference_kmh: number;
+  source: string;
+  snapshot: {
+    source: string;
+    request: Record<string, unknown>;
+    result: Record<string, unknown>;
+  };
+};
+
+export async function getSavedTrainingSessionDetail(
+  sessionId: number,
+): Promise<SavedTrainingSessionDetailResponse> {
+  return get(`/saved-training-sessions/${sessionId}`, { cache: "no-store" });
+}
+
+export async function deleteSavedTrainingSession(sessionId: number): Promise<void> {
+  await del(`/saved-training-sessions/${sessionId}`);
+}
+
 export async function deleteTrainingSession(item: TrainingSessionHistoryItem): Promise<void> {
   if (item.source === "tempo_run") {
     await deleteTempoRunSession(item.id);
     return;
   }
-  throw new Error(`Tipo de sesión no soportado: ${item.source}`);
+  await deleteSavedTrainingSession(item.id);
 }
 
 export type RsaCalculateRequest = {

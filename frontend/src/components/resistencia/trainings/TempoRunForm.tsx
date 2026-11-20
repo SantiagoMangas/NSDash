@@ -324,7 +324,7 @@ export function TempoRunForm({ athleteId, speedTestTable, onSessionSaved }: Prop
   };
 
   return (
-    <form onSubmit={submit} className="space-y-3">
+    <form onSubmit={submit} className="space-y-3 max-w-4xl">
       <InfoBanner title="Tempo Run">
         Pausa activa. El primer término del ratio fija la distancia de trabajo (100 m por unidad); el segundo ajusta la
         pausa en forma proporcional (ej. 1:2 → 100 m y 200 m; 2:1 con 100 m de trabajo → 50 m de pausa). Métrica MMSS:{" "}

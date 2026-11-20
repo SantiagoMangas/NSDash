@@ -68,7 +68,7 @@ export function ResistenciaModule({
             loading={loading}
             refreshKey={historyRefreshKey}
             onDashboardRefresh={refreshDashboard}
-            onTempoRunSaved={onEvaluationSuccess}
+            onTrainingSessionSaved={onEvaluationSuccess}
           />
 
         </>

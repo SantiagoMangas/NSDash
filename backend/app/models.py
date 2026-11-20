@@ -1,6 +1,6 @@
 from .db import Base
 
-from sqlalchemy import Boolean, Column, Date, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 
@@ -177,3 +177,20 @@ class TempoRunSession(Base):
     reference_kmh = Column(Float, nullable=False)
     summary = Column(String(512), nullable=False)
     snapshot_json = Column(Text, nullable=False)
+    saved_at = Column(DateTime, nullable=True, index=True)
+
+
+class SavedTrainingSession(Base):
+    """Sesión guardada desde calculadoras de resistencia (excepto Tempo, que mantiene tabla propia)."""
+
+    __tablename__ = "saved_training_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    athlete_id = Column(Integer, ForeignKey("athletes.id"), nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    source = Column(String(48), nullable=False, index=True)
+    entrenamiento = Column(String(96), nullable=False)
+    reference_kmh = Column(Float, nullable=False)
+    summary = Column(String(512), nullable=False)
+    snapshot_json = Column(Text, nullable=False)
+    saved_at = Column(DateTime, nullable=True, index=True)

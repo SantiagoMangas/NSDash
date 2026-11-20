@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import {
   deleteTrainingSession,
+  getSavedTrainingSessionDetail,
   getTempoRunSessionDetail,
   getTrainingSessions,
   type TrainingSessionHistoryItem,
@@ -11,6 +12,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { LoadingCard } from "@/components/ui/LoadingCard";
 import { formatDisplayDate } from "@/lib/date";
 import { parseApiError } from "@/lib/utils";
+import { SavedSessionSummaryCard } from "./SavedSessionSummaryCard";
+import { sortTrainingSessionsBySavedAt, trainingHistoryTitle } from "./trainingHistoryLabels";
 import {
   TempoRunSessionSummaryCard,
   type TempoRunSavedSnapshot,
@@ -35,7 +38,8 @@ export function TrainingSessionHistory({ athleteId, refreshKey = 0 }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<TrainingSessionHistoryItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  const [detailByKey, setDetailByKey] = useState<Record<string, TempoRunSavedSnapshot>>({});
+  type SavedDetail = { source: string; request: Record<string, unknown>; result: Record<string, unknown> };
+  const [detailByKey, setDetailByKey] = useState<Record<string, TempoRunSavedSnapshot | SavedDetail>>({});
   const [detailLoadingKey, setDetailLoadingKey] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
 
@@ -44,7 +48,7 @@ export function TrainingSessionHistory({ athleteId, refreshKey = 0 }: Props) {
       setLoading(true);
       setError(null);
       try {
-        setSessions(await getTrainingSessions(athleteId));
+        setSessions(sortTrainingSessionsBySavedAt(await getTrainingSessions(athleteId)));
       } catch {
         setError("No se pudo cargar el historial de entrenamientos.");
       } finally {
@@ -68,7 +72,7 @@ export function TrainingSessionHistory({ athleteId, refreshKey = 0 }: Props) {
     try {
       await deleteTrainingSession(deleteTarget);
       setDeleteTarget(null);
-      setSessions(await getTrainingSessions(athleteId));
+      setSessions(sortTrainingSessionsBySavedAt(await getTrainingSessions(athleteId)));
     } catch (err: unknown) {
       setError(parseApiError(err, "No se pudo eliminar el registro."));
     } finally {
@@ -90,19 +94,22 @@ export function TrainingSessionHistory({ athleteId, refreshKey = 0 }: Props) {
       return;
     }
 
-    if (session.source !== "tempo_run") {
-      setDetailError("Detalle no disponible para este tipo de sesión.");
-      return;
-    }
-
     setDetailLoadingKey(key);
     try {
-      const detail = await getTempoRunSessionDetail(session.id);
-      const ratio = detail.snapshot.request.ratio ?? "";
-      setDetailByKey((prev) => ({
-        ...prev,
-        [key]: { result: detail.snapshot.result, ratio },
-      }));
+      if (session.source === "tempo_run") {
+        const detail = await getTempoRunSessionDetail(session.id);
+        const ratio = detail.snapshot.request.ratio ?? "";
+        setDetailByKey((prev) => ({
+          ...prev,
+          [key]: { result: detail.snapshot.result, ratio },
+        }));
+      } else {
+        const detail = await getSavedTrainingSessionDetail(session.id);
+        setDetailByKey((prev) => ({
+          ...prev,
+          [key]: detail.snapshot,
+        }));
+      }
     } catch {
       setDetailError("No se pudo cargar el detalle de la sesión.");
     } finally {
@@ -152,7 +159,7 @@ export function TrainingSessionHistory({ athleteId, refreshKey = 0 }: Props) {
                       <tr className="border-t border-slate-100 bg-white even:bg-slate-50/40">
                         <td className="px-4 py-2 whitespace-nowrap">{formatDisplayDate(session.date)}</td>
                         <td className="px-4 py-2 whitespace-nowrap font-medium text-slate-900">
-                          {session.entrenamiento}
+                          {trainingHistoryTitle(session)}
                         </td>
                         <td className="px-4 py-2 whitespace-nowrap">{session.reference_kmh.toFixed(2)} km/h</td>
                         <td className="px-4 py-2">
@@ -192,7 +199,11 @@ export function TrainingSessionHistory({ athleteId, refreshKey = 0 }: Props) {
                             ) : detailError && !snapshot ? (
                               <p className="text-sm text-red-600">{detailError}</p>
                             ) : snapshot ? (
-                              <TempoRunSessionSummaryCard snapshot={snapshot} showSavedBanner={false} />
+                              session.source === "tempo_run" ? (
+                                <TempoRunSessionSummaryCard snapshot={snapshot as TempoRunSavedSnapshot} showSavedBanner={false} />
+                              ) : (
+                                <SavedSessionSummaryCard snapshot={snapshot as SavedDetail} showSavedBanner={false} />
+                              )
                             ) : null}
                           </td>
                         </tr>
